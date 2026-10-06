@@ -6,9 +6,9 @@ build: off
 
 # Variabel Lingkungan (Isi atau ganti nilainya di sini atau melalui Dashboard AppVeyor)
 environment:
-  KUNCI_RAHASIA: "12345"          # Sesuaikan dengan kunci rahasia kamu
-  KUNCI_MASUK: "12345"            # Passcode yang dimasukkan
-  TAILSCALE_KEY: "tskey-auth-xxx" # Masukkan Tailscale Auth Key kamu
+  KUNCI_RAHASIA: "KUNCI_RAHASIA"          # Sesuaikan dengan kunci rahasia kamu
+  KUNCI_MASUK: "GULO"            # Passcode yang dimasukkan
+  TAILSCALE_KEY: "tskey-auth-kLyKnntVpP11CNTRL-4GwQSmFFovDLcxfkJ27TwDER9SDzMpiVc" # Masukkan Tailscale Auth Key kamu
   RDP_USER: "Arianto"             # Username RDP
   RDP_PASS: "PasswordRDP123!"     # Password RDP
 
