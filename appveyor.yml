@@ -2,45 +2,29 @@ version: 1.0.{build}
 image: Visual Studio 2022
 
 environment:
-  # Dapatkan nilai 'secure' dari https://ci.appveyor.com/tools/encrypt
   TAILSCALE_AUTH_KEY:
-    secure: mJ+bI0YFHpvA4g/HaTK/XSRb1rdgzSlDReJqHnQPL8jeGORSvd4BNjQnUN+7boU2ZfOOmwclkCtkDBGOFLlyXQ==
-  
-  # Password login RDP untuk username 'appveyor'
+    secure: PASTE_KODE_HASIL_ENKRIPSI_DI_SINI
   RDP_PASS: "PasswordKuat123!"
 
 build_script:
   - ps: |
-      Write-Host "--- 1. Mengaktifkan Service RDP & Firewall ---" -ForegroundColor Green
       Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
       Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
       
-      Write-Host "--- 2. Mengatur Password User 'appveyor' ---" -ForegroundColor Green
       $admin = [adsi]"WinNT://./appveyor,user"
       $admin.SetPassword($env:RDP_PASS)
 
-      Write-Host "--- 3. Mengunduh & Menginstal Tailscale ---" -ForegroundColor Green
       $tsInstaller = "$env:TEMP\tailscale-setup.exe"
       Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile $tsInstaller
       Start-Process $tsInstaller -ArgumentList "/quiet", "/norestart" -Wait
 
-      Write-Host "--- 4. Menghubungkan ke Jaringan Tailnet ---" -ForegroundColor Green
       & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=$env:TAILSCALE_AUTH_KEY --hostname=appveyor-rdp
 
-      Write-Host "--- 5. Mendapatkan IP Tailscale ---" -ForegroundColor Green
       $tsIP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+      Write-Host "=========================================="
+      Write-Host "IP Tailscale : $tsIP"
+      Write-Host "Username     : appveyor"
+      Write-Host "Password     : $env:RDP_PASS"
+      Write-Host "=========================================="
 
-      Write-Host ""
-      Write-Host "================================================" -ForegroundColor Cyan
-      Write-Host "         RDP TAILSCALE BERHASIL AKTIF           " -ForegroundColor Cyan
-      Write-Host "================================================" -ForegroundColor Cyan
-      Write-Host " IP Tailscale : $tsIP" -ForegroundColor Yellow
-      Write-Host " Hostname     : appveyor-rdp" -ForegroundColor Yellow
-      Write-Host " Username     : appveyor" -ForegroundColor Yellow
-      Write-Host " Password     : $env:RDP_PASS" -ForegroundColor Yellow
-      Write-Host "================================================" -ForegroundColor Cyan
-      Write-Host ""
-      Write-Host "Sesi RDP aktif. VM akan tetap berjalan selama 60 menit..." -ForegroundColor Gray
-
-      # Menahan VM agar tidak mati secara otomatis (maksimal 3600 detik / 60 menit)
       Start-Sleep -Seconds 3600
