@@ -1,17 +1,18 @@
 version: 1.0.{build}
 image: Visual Studio 2022
 
-# Nonaktifkan mode MSBuild/Visual Studio bawaan
+# Mematikan mode MSBuild bawaan
 build: off
 
-# Variabel Lingkungan (Isi atau ganti nilainya di sini atau melalui Dashboard AppVeyor)
+# Variabel Lingkungan
 environment:
-  KUNCI_RAHASIA: "KUNCI_RAHASIA"          # Sesuaikan dengan kunci rahasia kamu
-  KUNCI_MASUK: "GULO"            # Passcode yang dimasukkan
-  TAILSCALE_KEY: "tskey-auth-kLyKnntVpP11CNTRL-4GwQSmFFovDLcxfkJ27TwDER9SDzMpiVc" # Masukkan Tailscale Auth Key kamu
-  RDP_USER: "Arianto"             # Username RDP
-  RDP_PASS: "PasswordRDP123!"     # Password RDP
+  KUNCI_RAHASIA: "12345"
+  KUNCI_MASUK: "12345"
+  TAILSCALE_KEY: "MASUKKAN_TAILSCALE_AUTH_KEY_KAMU_DI_SINI"
+  RDP_USER: "Arianto"
+  RDP_PASS: "PasswordRDP123!"
 
+# Perintah utama untuk menjalankan RDP
 build_script:
   - ps: |
       # 1. Validasi Kunci Masuk
