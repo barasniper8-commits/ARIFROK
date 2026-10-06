@@ -4,7 +4,7 @@ image: Visual Studio 2022
 environment:
   # Dapatkan nilai 'secure' dari https://ci.appveyor.com/tools/encrypt
   TAILSCALE_AUTH_KEY:
-    secure: "MASUKKAN_HASIL_ENKRIPSI_TAILSCALE_AUTH_KEY_DI_SINI"
+    secure: "tskey-auth-kLyKnntVpP11CNTRL-4GwQSmFFovDLcxfkJ27TwDER9SDzMpiVc"
   
   # Password login RDP untuk username 'appveyor'
   RDP_PASS: "PasswordKuat123!"
