@@ -1,78 +1,46 @@
 version: 1.0.{build}
 image: Visual Studio 2022
 
-# Mematikan mode MSBuild bawaan
-build: off
-
-# Variabel Lingkungan
 environment:
-  KUNCI_RAHASIA: "12345"
-  KUNCI_MASUK: "12345"
-  TAILSCALE_KEY: "tskey-auth-kLyKnntVpP11CNTRL-4GwQSmFFovDLcxfkJ27TwDER9SDzMpiVc"
-  RDP_USER: "Arianto"
-  RDP_PASS: "PasswordRDP123!"
+  # Dapatkan nilai 'secure' dari https://ci.appveyor.com/tools/encrypt
+  TAILSCALE_AUTH_KEY:
+    secure: "MASUKKAN_HASIL_ENKRIPSI_TAILSCALE_AUTH_KEY_DI_SINI"
+  
+  # Password login RDP untuk username 'appveyor'
+  RDP_PASS: "PasswordKuat123!"
 
-# Perintah utama untuk menjalankan RDP
 build_script:
   - ps: |
-      # 1. Validasi Kunci Masuk
-      if ($env:KUNCI_MASUK -ne $env:KUNCI_RAHASIA) {
-          Write-Error "Kunci masuk salah! Akses ditolak."
-          exit 1
-      }
-      Write-Output "Kunci masuk valid. Memulai pembuatan RDP..."
-
-      # 2. Aktifkan Remote Desktop & Buat Pengguna
+      Write-Host "--- 1. Mengaktifkan Service RDP & Firewall ---" -ForegroundColor Green
       Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
       Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
       
-      $Password = ConvertTo-SecureString $env:RDP_PASS -AsPlainText -Force
-      New-LocalUser -Name $env:RDP_USER -Password $Password -PasswordNeverExpires:$true
-      Add-LocalGroupMember -Group "Administrators" -Member $env:RDP_USER
+      Write-Host "--- 2. Mengatur Password User 'appveyor' ---" -ForegroundColor Green
+      $admin = [adsi]"WinNT://./appveyor,user"
+      $admin.SetPassword($env:RDP_PASS)
 
-      # 3. Set Foto Profil & Wallpaper Desktop
-      $avatarUrl = "https://raw.githubusercontent.com/Darkreaper02/Darkreaper/refs/heads/main/.github/workflows/FB_IMG_1767958849920.jpg"
-      $avatarPath = "C:\ProgramData\Microsoft\User Account Pictures"
-      Invoke-WebRequest -Uri $avatarUrl -OutFile "C:\avatar.jpg" -UseBasicParsing
-      
-      Copy-Item "C:\avatar.jpg" "$avatarPath\user.png" -Force
-      Copy-Item "C:\avatar.jpg" "$avatarPath\user-192.png" -Force
-      Copy-Item "C:\avatar.jpg" "$avatarPath\user-448.png" -Force
-      Copy-Item "C:\avatar.jpg" "$avatarPath\user-bmp.png" -Force
-      
-      $userSid = (Get-LocalUser -Name $env:RDP_USER).SID.Value
-      $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AccountPicture\Users\$userSid"
-      if (!(Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
-      New-ItemProperty -Path $regPath -Name "Image448" -Value "C:\avatar.jpg" -PropertyType String -Force | Out-Null
-      New-ItemProperty -Path $regPath -Name "Image192" -Value "C:\avatar.jpg" -PropertyType String -Force | Out-Null
+      Write-Host "--- 3. Mengunduh & Menginstal Tailscale ---" -ForegroundColor Green
+      $tsInstaller = "$env:TEMP\tailscale-setup.exe"
+      Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile $tsInstaller
+      Start-Process $tsInstaller -ArgumentList "/quiet", "/norestart" -Wait
 
-      $wallpaperUrl = "https://raw.githubusercontent.com/Darkreaper02/RDPARICRK/refs/heads/main/20261006_011533.png"
-      Invoke-WebRequest -Uri $wallpaperUrl -OutFile "C:\wallpaper.png" -UseBasicParsing
+      Write-Host "--- 4. Menghubungkan ke Jaringan Tailnet ---" -ForegroundColor Green
+      & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=$env:TAILSCALE_AUTH_KEY --hostname=appveyor-rdp
 
-      takeown /f "C:\Windows\Web\Wallpaper\Windows\img0.jpg"
-      icacls "C:\Windows\Web\Wallpaper\Windows\img0.jpg" /grant Administrators:F
-      Copy-Item "C:\wallpaper.png" "C:\Windows\Web\Wallpaper\Windows\img0.jpg" -Force
+      Write-Host "--- 5. Mendapatkan IP Tailscale ---" -ForegroundColor Green
+      $tsIP = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
 
-      # 4. Install & Hubungkan Tailscale
-      Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe" -UseBasicParsing
-      Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
-      
-      Start-Sleep -Seconds 5
-      
-      & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=$env:TAILSCALE_KEY --accept-routes
+      Write-Host ""
+      Write-Host "================================================" -ForegroundColor Cyan
+      Write-Host "         RDP TAILSCALE BERHASIL AKTIF           " -ForegroundColor Cyan
+      Write-Host "================================================" -ForegroundColor Cyan
+      Write-Host " IP Tailscale : $tsIP" -ForegroundColor Yellow
+      Write-Host " Hostname     : appveyor-rdp" -ForegroundColor Yellow
+      Write-Host " Username     : appveyor" -ForegroundColor Yellow
+      Write-Host " Password     : $env:RDP_PASS" -ForegroundColor Yellow
+      Write-Host "================================================" -ForegroundColor Cyan
+      Write-Host ""
+      Write-Host "Sesi RDP aktif. VM akan tetap berjalan selama 60 menit..." -ForegroundColor Gray
 
-      # 5. Menjaga RDP Tetap Aktif
-      Start-Sleep -Seconds 5
-      $tsIp = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
-      
-      Write-Output "=============================================="
-      Write-Output " IP Tailscale RDP : $tsIp"
-      Write-Output " Status          : Aktif & Terhubung"
-      Write-Output "=============================================="
-      
-      $counter = 0
-      while ($true) {
-          Start-Sleep -Seconds 3600
-          $counter++
-          Write-Output "RDP Masih Berjalan ($counter Jam)..."
-      }
+      # Menahan VM agar tidak mati secara otomatis (maksimal 3600 detik / 60 menit)
+      Start-Sleep -Seconds 3600
