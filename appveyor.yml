@@ -2,8 +2,8 @@ version: 1.0.{build}
 image: Visual Studio 2022
 
 environment:
-  TAILSCALE_AUTH_KEY:
-    secure: PASTE_KODE_HASIL_ENKRIPSI_DI_SINI
+  TAILSCALE_AUTH_KEY:tskey-auth-kLyKnntVpP11CNTRL-4GwQSmFFovDLcxfkJ27TwDER9SDzMpiVc
+    secure: mJ+bI0YFHpvA4g/HaTK/XSRb1rdgzSlDReJqHnQPL8jeGORSvd4BNjQnUN+7boU2ZfOOmwclkCtkDBGOFLlyXQ==
   RDP_PASS: "PasswordKuat123!"
 
 build_script:
