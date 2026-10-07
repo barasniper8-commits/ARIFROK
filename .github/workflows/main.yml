@@ -27,12 +27,16 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Validasi Kunci Masuk
+            - name: Validasi Kunci Masuk
         env:
           KUNCI_INPUT: ${{ github.event.inputs.kunci_masuk }}
           KUNCI_SECRET: ${{ secrets.KUNCI_RAHASIA }}
         run: |
-          if ($env:KUNCI_INPUT -ne $env:KUNCI_SECRET) {
+          # Memecah string secret berdasarkan koma menjadi array/daftar
+          $daftarKunci = $env:KUNCI_SECRET -split ','
+          
+          # Mengecek apakah kunci yang diinputkan pengguna ada di dalam daftar
+          if ($daftarKunci -notcontains $env:KUNCI_INPUT) {
               Write-Error "Kunci masuk salah! Akses ditolak."
               exit 1
           }
