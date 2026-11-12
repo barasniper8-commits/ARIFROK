@@ -16,7 +16,7 @@ jobs:
         run: |
           Write-Host "=========================================="
           Write-Host "  VPS RDP MILIK: Viera"
-          Write-Host "  LOKASI: Lumajang, Indonesia"
+          Write-Host "  LOKASI:Indonesia"
           Write-Host "=========================================="
           Write-Host "=== SPESIFIKASI MESIN (RAM 16GB) ==="
           Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory
