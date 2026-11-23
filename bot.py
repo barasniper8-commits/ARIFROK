@@ -17,13 +17,15 @@ RDP_PHOTO_URL = (
     "s1600/1000196027.png"
 )
 RDP_APP_LINK = "https://sfile.co/FX05ITaeqgj"
+START_MINI_APP_URL = "https://arianto12.lynk.id/p/ganjeng"
 FOREX_MINI_APP_URL = "https://arianto12.lynk.id/p/analisa-forex"
 
 BOT_DESCRIPTION = (
     "Asisten AI bot Telegram sarkas, cerdas, lucu, dan menggurui. "
-    "Akses RDP Vortex STD, panduan penggunaan, dan Mini App Analisa Forex."
+    "Akses RDP Vortex STD, panduan penggunaan, dan Mini App."
 )
 
+BTN_START_APP = "🚀 Mulai Bot (Mini App)"
 BTN_FOREX = "📈 Analisa Forex"
 BTN_RDP = "⚡ RDP Vortex"
 BTN_GUIDE = "📖 Cara Pakai Vortex"
@@ -219,11 +221,15 @@ def register_chat_menu_button() -> None:
         payload = {
             "menu_button": {
                 "type": "web_app",
-                "text": "Analisa Forex",
-                "web_app": {"url": FOREX_MINI_APP_URL},
+                "text": "Mulai Bot",
+                "web_app": {"url": START_MINI_APP_URL},
             }
         }
-        requests.post(url, json=payload, timeout=15)
+        resp = requests.post(url, json=payload, timeout=15)
+        if resp.ok:
+            print(f"Menu button web_app berhasil diatur ke {START_MINI_APP_URL}.", flush=True)
+        else:
+            print(f"Info: gagal setChatMenuButton ({resp.status_code}): {resp.text}", file=sys.stderr, flush=True)
     except Exception as e:
         print(f"Info: gagal setChatMenuButton (diabaikan): {e}", file=sys.stderr, flush=True)
 
@@ -246,19 +252,20 @@ def register_bot_commands() -> None:
 def get_main_reply_keyboard() -> dict:
     return {
         "keyboard": [
-            [{"text": BTN_FOREX, "web_app": {"url": FOREX_MINI_APP_URL}}],
-            [{"text": BTN_RDP}, {"text": BTN_GUIDE}],
-            [{"text": BTN_ROAST}, {"text": BTN_STATUS}],
+            [{"text": BTN_START_APP, "web_app": {"url": START_MINI_APP_URL}}],
+            [{"text": BTN_FOREX, "web_app": {"url": FOREX_MINI_APP_URL}}, {"text": BTN_RDP}],
+            [{"text": BTN_GUIDE}, {"text": BTN_ROAST}, {"text": BTN_STATUS}],
         ],
         "resize_keyboard": True,
         "is_persistent": True,
-        "input_field_placeholder": "Ketik pesan atau buka Mini App Analisa Forex...",
+        "input_field_placeholder": "Ketik pesan atau klik Mulai Bot...",
     }
 
 
 def get_start_inline_keyboard() -> dict:
     return {
         "inline_keyboard": [
+            [{"text": "🚀 Mulai Bot (Mini App)", "web_app": {"url": START_MINI_APP_URL}}],
             [{"text": "📈 Buka Mini App Analisa Forex", "web_app": {"url": FOREX_MINI_APP_URL}}],
             [
                 {"text": "⚡ Ambil RDP Vortex", "callback_data": "menu_rdp"},
@@ -917,16 +924,16 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             raw_payload = (web_app_data.get("data") or "").strip()
             try:
                 ai_resp, _ = ask_groq(
-                    raw_payload or "kirim data dari mini app analisa forex",
+                    raw_payload or "kirim data dari mini app",
                     sender_name,
                     state["chat_model"],
-                    extra_instruction="Gurui user dengan sarkas dan lucu soal data dari Mini App Analisa Forex. Maksimal 26 kata.",
+                    extra_instruction="Gurui user dengan sarkas dan lucu soal data dari Mini App. Maksimal 26 kata.",
                     max_words=26,
                     max_tokens=256,
                     force_angry=False,
                 )
             except Exception:
-                ai_resp = "Data udah masuk; sekarang disiplin stop loss, jangan serakah biar nggak nangis."
+                ai_resp = "Data dari Mini App udah masuk; sekarang pakai logika, jangan asal klik."
             send_telegram_message(
                 chat_id,
                 format_styled_reply("MINI APP DATA", ai_resp),
@@ -960,7 +967,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             styled_welcome = (
                 f"<b>⚡ AI BOT READY</b>\n"
                 f"<blockquote>{html.escape(welcome_text)}</blockquote>\n"
-                f"<i>Pilih menu atau buka Mini App Analisa Forex di bawah.</i>"
+                f"<i>Klik Mulai Bot atau pilih menu di bawah.</i>"
             )
 
             sent_combined_photo = False
@@ -995,9 +1002,10 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             print(f"Menyambut {sender_name} (/start) menyatu={'ya' if sent_combined_photo else 'tidak'}.", flush=True)
             continue
 
-        if not has_photo and text.strip() in (BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
+        if not has_photo and text.strip() in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
             try:
                 quick_map = {
+                    BTN_START_APP: "forex",
                     BTN_FOREX: "forex",
                     BTN_RDP: "rdp",
                     BTN_GUIDE: "guide",
