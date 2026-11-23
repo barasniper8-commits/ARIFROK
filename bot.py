@@ -1,14 +1,17 @@
 import json
 import os
 import sys
+import time
 import requests
 
 # Ganti nilai di bawah ini dengan token dan API key milikmu sendiri
-TELEGRAM_TOKEN = "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"
-OPENROUTER_API_KEY = "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"
+TELEGRAM_TOKEN = "ISI_TOKEN_TELEGRAM_KAMU_DI_SINI"
+OPENROUTER_API_KEY = "ISI_OPENROUTER_API_KEY_KAMU_DI_SINI"
 OPENROUTER_MODEL = "openai/gpt-4o-mini"
 
 OFFSET_FILE = "last_offset.json"
+RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam = 21.600 detik
+POLL_INTERVAL_SECONDS = 5          # jeda cek pesan baru (detik)
 
 SYSTEM_PROMPT = """Kamu adalah asisten AI di Telegram dengan kepribadian:
 - GALAK & SARKAS: Nyinyir tapi tetap kena, suka menyindir pertanyaan yang malas dipikir, namun tidak melewati batas kasar yang tidak perlu.
@@ -93,22 +96,10 @@ def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int | No
     resp.raise_for_status()
 
 
-def main() -> None:
-    if (
-        not TELEGRAM_TOKEN
-        or TELEGRAM_TOKEN == "ISI_TOKEN_TELEGRAM_KAMU_DI_SINI"
-        or not OPENROUTER_API_KEY
-        or OPENROUTER_API_KEY == "ISI_OPENROUTER_API_KEY_KAMU_DI_SINI"
-    ):
-        print("Error: Isi TELEGRAM_TOKEN dan OPENROUTER_API_KEY di dalam bot.py terlebih dahulu.", file=sys.stderr)
-        sys.exit(1)
-
-    current_offset = load_last_offset()
+def poll_once(current_offset: int | None) -> int | None:
     updates = get_telegram_updates(current_offset)
-
     if not updates:
-        print("Tidak ada pesan baru.")
-        return
+        return current_offset
 
     max_update_id = None
 
@@ -139,17 +130,54 @@ def main() -> None:
         try:
             reply_text = ask_openrouter(prompt_text, sender_name)
             send_telegram_message(chat_id, reply_text, reply_to_message_id=message_id)
-            print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}).")
+            print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}).", flush=True)
         except Exception as e:
-            print(f"Gagal memproses update {update_id}: {e}", file=sys.stderr)
-            send_telegram_message(
-                chat_id,
-                "Tadi otak saya sempat nge-freeze gara-gara pertanyaanmu. Coba kirim ulang sebentar lagi!",
-                reply_to_message_id=message_id,
-            )
+            print(f"Gagal memproses update {update_id}: {e}", file=sys.stderr, flush=True)
+            try:
+                send_telegram_message(
+                    chat_id,
+                    "Tadi otak saya sempat nge-freeze gara-gara pertanyaanmu. Coba kirim ulang sebentar lagi!",
+                    reply_to_message_id=message_id,
+                )
+            except Exception:
+                pass
 
     if max_update_id is not None:
-        save_last_offset(max_update_id + 1)
+        new_offset = max_update_id + 1
+        save_last_offset(new_offset)
+        return new_offset
+
+    return current_offset
+
+
+def main() -> None:
+    if (
+        not TELEGRAM_TOKEN
+        or TELEGRAM_TOKEN == "ISI_TOKEN_TELEGRAM_KAMU_DI_SINI"
+        or not OPENROUTER_API_KEY
+        or OPENROUTER_API_KEY == "ISI_OPENROUTER_API_KEY_KAMU_DI_SINI"
+    ):
+        print("Error: Isi TELEGRAM_TOKEN dan OPENROUTER_API_KEY di dalam bot.py terlebih dahulu.", file=sys.stderr)
+        sys.exit(1)
+
+    start_time = time.monotonic()
+    end_time = start_time + RUN_DURATION_SECONDS
+    current_offset = load_last_offset()
+
+    print("Bot aktif! Mode siaga selama 6 jam...", flush=True)
+
+    while time.monotonic() < end_time:
+        try:
+            current_offset = poll_once(current_offset)
+        except Exception as e:
+            print(f"Error saat polling: {e}", file=sys.stderr, flush=True)
+
+        remaining = end_time - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
+
+    print("Sesi 6 jam selesai.", flush=True)
 
 
 if __name__ == "__main__":
