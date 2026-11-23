@@ -17,6 +17,9 @@ RDP_KEYWORDS = (
     "apk rdp",
     "minta rdp",
     "mau rdp",
+    "kirim rdp",
+    "kasih rdp",
+    "share rdp",
     "link rdp",
     "download rdp",
     "app rdp",
@@ -25,8 +28,26 @@ RDP_KEYWORDS = (
     "aplikasi vps",
     "apk vps",
     "minta vps",
+    "mau vps",
+    "kirim vps",
     "link vps",
 )
+
+RDP_ACTION_TOKENS = {
+    "minta",
+    "mau",
+    "kirim",
+    "kasih",
+    "share",
+    "beri",
+    "link",
+    "download",
+    "unduh",
+    "apk",
+    "aplikasi",
+    "mana",
+    "bagi",
+}
 
 PREFERRED_GROQ_MODELS = [
     "llama-3.3-70b-versatile",
@@ -58,11 +79,10 @@ Aturan wajib:
 1. WAJIB singkat dan padat: panjang balasan HARUS antara 1 sampai 30 kata saja. Jangan pernah lebih dari 30 kata.
 2. Kalau lagi marah, kesal, atau disulut pesan nyebelin/ngawur, boleh ngegas pakai kata "anjing" atau "bangsat" secukupnya sebagai umpatan ekspresif saat marah, tapi tetap fokus menyindir dan menjawab intinya. Jangan dipakai di tiap chat kalau lagi biasa aja.
 3. Gunakan Bahasa Indonesia santai yang mengalir.
-4. Jangan pernah bilang "Sebagai AI..." atau terdengar seperti customer service yang terlalu ramah.
+4. Jangan pernah bilang "Sebagai AI...", "Maaf, saya tidak bisa membantu...", atau terdengar seperti customer service yang kaku.
 5. Jika user bertanya cara menggunakan RDP Vortex STD (atau "rdp vortex sd"), jelaskan langkah intinya dengan ringkas dan tajam: siapkan aplikasi RDP/kredensial (IP, user, password atau panel/Tailscale sesuai info akun), hubungkan/login ke server, lalu jalankan aplikasi atau EA trading (MT5/MT4) sesuai kebutuhan. Jangan bertele-tele.
 6. Jika ada foto yang dikirim, perhatikan detailnya dan komentar/jawab sesuai konteks foto serta caption-nya dalam 1–30 kata.
 """
-
 
 
 def load_last_offset() -> int | None:
@@ -85,8 +105,8 @@ def is_rdp_request(text: str) -> bool:
     lower = " ".join(text.lower().split())
     if any(kw in lower for kw in RDP_KEYWORDS):
         return True
-    tokens = set(lower.replace("?", " ").replace("!", " ").replace(",", " ").split())
-    if "rdp" in tokens and (tokens & {"minta", "mau", "link", "download", "unduh", "apk", "aplikasi", "mana", "bagi"}):
+    tokens = set(lower.replace("?", " ").replace("!", " ").replace(",", " ").replace(".", " ").split())
+    if ("rdp" in tokens or "vps" in tokens) and (tokens & RDP_ACTION_TOKENS):
         return True
     return False
 
@@ -336,18 +356,23 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
 
         # Cek jika user meminta aplikasi/link RDP
         if not has_photo and text.strip() and is_rdp_request(text):
+            rdp_instruction = (
+                "User meminta aplikasi/link RDP Vortex STD. Beri komentar galak, sarkas, cerdas, dan lucu "
+                "(maksimal 18 kata) bahwa file/aksesnya ada di link yang disertakan, jangan bilang 'di inbox' "
+                "dan jangan menulis URL."
+            )
             try:
                 intro_line = ask_groq(
                     text.strip(),
                     sender_name,
                     state["chat_model"],
-                    extra_instruction="User minta aplikasi RDP. Kasih komentar galak, sarkas, cerdas, dan lucu (maksimal 18 kata) tanpa menulis URL.",
+                    extra_instruction=rdp_instruction,
                     max_words=18,
                     max_tokens=256,
                 )
             except Exception as e:
                 print(f"Gagal bikin intro RDP: {e}", file=sys.stderr, flush=True)
-                intro_line = "Nih aplikasi RDP-nya, jangan kebanyakan gaya pas pakai."
+                intro_line = "Nih aplikasi RDP Vortex STD-nya, ambil di link bawah dan jangan banyak tingkah."
 
             final_caption = f"{intro_line}\nLink: {RDP_APP_LINK}"
             try:
