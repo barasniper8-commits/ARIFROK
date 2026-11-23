@@ -4,10 +4,9 @@ import sys
 import time
 import requests
 
-# Ganti nilai di bawah ini dengan token dan API key milikmu sendiri
 TELEGRAM_TOKEN = "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"
 OPENROUTER_API_KEY = "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"
-OPENROUTER_MODEL = "openai/gpt-4o-mini"
+OPENROUTER_MODEL = "google/gemini-2.5-pro"
 
 OFFSET_FILE = "last_offset.json"
 RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam = 21.600 detik
@@ -151,13 +150,8 @@ def poll_once(current_offset: int | None) -> int | None:
 
 
 def main() -> None:
-    if (
-        not TELEGRAM_TOKEN
-        or TELEGRAM_TOKEN == "ISI_TOKEN_TELEGRAM_KAMU_DI_SINI"
-        or not OPENROUTER_API_KEY
-        or OPENROUTER_API_KEY == "ISI_OPENROUTER_API_KEY_KAMU_DI_SINI"
-    ):
-        print("Error: Isi TELEGRAM_TOKEN dan OPENROUTER_API_KEY di dalam bot.py terlebih dahulu.", file=sys.stderr)
+    if not TELEGRAM_TOKEN or not OPENROUTER_API_KEY:
+        print("Error: TELEGRAM_TOKEN atau OPENROUTER_API_KEY kosong.", file=sys.stderr)
         sys.exit(1)
 
     start_time = time.monotonic()
