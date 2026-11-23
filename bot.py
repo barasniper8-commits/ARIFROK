@@ -3,9 +3,11 @@ import os
 import sys
 import requests
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+# Ganti nilai di bawah ini dengan token dan API key milikmu sendiri
+TELEGRAM_TOKEN = "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"
+OPENROUTER_API_KEY = "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"
+OPENROUTER_MODEL = "openai/gpt-4o-mini"
+
 OFFSET_FILE = "last_offset.json"
 
 SYSTEM_PROMPT = """Kamu adalah asisten AI di Telegram dengan kepribadian:
@@ -92,8 +94,13 @@ def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int | No
 
 
 def main() -> None:
-    if not TELEGRAM_TOKEN or not OPENROUTER_API_KEY:
-        print("Error: TELEGRAM_BOT_TOKEN atau OPENROUTER_API_KEY belum di-set.", file=sys.stderr)
+    if (
+        not TELEGRAM_TOKEN
+        or TELEGRAM_TOKEN == "ISI_TOKEN_TELEGRAM_KAMU_DI_SINI"
+        or not OPENROUTER_API_KEY
+        or OPENROUTER_API_KEY == "ISI_OPENROUTER_API_KEY_KAMU_DI_SINI"
+    ):
+        print("Error: Isi TELEGRAM_TOKEN dan OPENROUTER_API_KEY di dalam bot.py terlebih dahulu.", file=sys.stderr)
         sys.exit(1)
 
     current_offset = load_last_offset()
@@ -123,7 +130,6 @@ def main() -> None:
         from_user = message.get("from", {})
         sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
 
-        # Abaikan perintah /start dengan sapaan khas karakter, atau kirim ke OpenRouter
         prompt_text = (
             "User baru saja menekan /start. Sambut dia dengan gaya galak, sarkas, cerdas, dan lucu."
             if text.strip() == "/start"
