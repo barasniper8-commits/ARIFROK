@@ -113,15 +113,19 @@ ANGRY_TRIGGERS = (
     "emosi",
 )
 
+# Prioritas model terbaik & versi tinggi di Groq free tier
 PREFERRED_GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+    "qwen/qwen3-32b",
+    "openai/gpt-oss-20b",
     "meta-llama/llama-4-scout-17b-16e-instruct",
     "meta-llama/llama-4-maverick-17b-128e-instruct",
-    "gemma2-9b-it",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
 ]
-PREFERRED_VISION_KEYWORDS = ("vision", "scout", "maverick", "vl")
-EXCLUDED_MODEL_KEYWORDS = ("whisper", "orpheus", "tts", "guard", "safeguard", "prompt-guard", "qwen", "deepseek")
+PREFERRED_VISION_KEYWORDS = ("vision", "scout", "maverick", "vl", "4o")
+EXCLUDED_MODEL_KEYWORDS = ("whisper", "orpheus", "tts", "guard", "safeguard", "prompt-guard")
 
 FALLBACK_CALM_REPLIES = [
     "Nyapa doang nih? Lanjut ke intinya sebelum keburu basi.",
@@ -144,7 +148,7 @@ POLL_INTERVAL_SECONDS = 5          # jeda cek pesan baru (detik)
 SYSTEM_PROMPT = """Kamu adalah asisten AI bot Telegram berbahasa Indonesia gaul-natural yang CERDAS, LUCU, dan SARKAS.
 
 Gaya bahasa WAJIB:
-- Gunakan Bahasa Indonesia asli, luwes, natural seperti orang ngobrol santai/nongkrong. DILARANG pakai bahasa terjemahan aneh, puitis ngawur, atau gaya customer service kaku ("Maaf, pertanyaan Anda tidak terstruktur...").
+- Gunakan Bahasa Indonesia asli, luwes, natural seperti orang ngobrol santai/nongkrong. DILARANG pakai bahasa terjemahan aneh, kaku, atau gaya customer service ("Maaf, pertanyaan Anda tidak terstruktur...").
 - Tetap CERDAS: jawaban masuk akal, tajam, dan bernalar—jangan ngasal meski sambil nyinyir.
 - Tetap LUCU: pakai sindiran kering, perumpamaan kocak, atau punchline pas di situasi.
 - Panjang balasan WAJIB 1 sampai 30 kata saja. Jangan lebih dari 30 kata.
@@ -170,7 +174,6 @@ def is_angry_trigger(text: str) -> bool:
         return False
     if any(t in lower for t in ANGRY_TRIGGERS):
         return True
-    # Pesan pendek bernada nyinyir/provokatif seperti "sok ...", "gila ...", "apaan sih"
     if re.search(r"\b(sok|gila|ngapain|apaan)\b", lower) and len(lower.split()) <= 4:
         return True
     return False
