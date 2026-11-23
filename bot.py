@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import sys
@@ -6,6 +7,7 @@ import requests
 
 TELEGRAM_TOKEN = "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"
 GROQ_API_KEY = "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"
+
 PREFERRED_GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
@@ -13,6 +15,7 @@ PREFERRED_GROQ_MODELS = [
     "qwen/qwen3-32b",
     "deepseek-r1-distill-llama-70b",
 ]
+PREFERRED_VISION_KEYWORDS = ("vision", "4o", "scout", "maverick", "vl")
 EXCLUDED_MODEL_KEYWORDS = ("whisper", "orpheus", "tts", "guard", "safeguard", "prompt-guard")
 
 OFFSET_FILE = "last_offset.json"
@@ -29,6 +32,7 @@ Aturan gaya bahasa:
 2. Jangan pernah bilang "Sebagai AI..." atau terdengar seperti customer service yang terlalu ramah.
 3. Jawab inti masalahnya dengan benar, tapi bungkus dengan sarkasme dan humor cerdas.
 4. Ringkas dan padat, jangan bertele-tele kecuali memang perlu penjelasan teknis.
+5. Jika ada foto yang dikirim, perhatikan detailnya dan komentar/jawab sesuai konteks foto serta caption-nya.
 """
 
 
@@ -53,6 +57,11 @@ def is_chat_candidate(model_id: str) -> bool:
     return not any(kw in lower for kw in EXCLUDED_MODEL_KEYWORDS)
 
 
+def is_vision_candidate(model_id: str) -> bool:
+    lower = model_id.lower()
+    return is_chat_candidate(model_id) and any(kw in lower for kw in PREFERRED_VISION_KEYWORDS)
+
+
 def test_groq_chat_model(model_name: str) -> bool:
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -68,7 +77,7 @@ def test_groq_chat_model(model_name: str) -> bool:
     return resp.ok
 
 
-def resolve_groq_model() -> tuple[str, list[str]]:
+def resolve_groq_models() -> dict:
     url = "https://api.groq.com/openai/v1/models"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -83,23 +92,46 @@ def resolve_groq_model() -> tuple[str, list[str]]:
     if not available_ids:
         raise RuntimeError("Daftar model Groq kosong untuk API key ini.")
 
-    ordered_candidates: list[str] = []
+    chat_candidates: list[str] = []
     for candidate in PREFERRED_GROQ_MODELS:
-        if candidate in available_ids and is_chat_candidate(candidate) and candidate not in ordered_candidates:
-            ordered_candidates.append(candidate)
-
+        if candidate in available_ids and is_chat_candidate(candidate) and candidate not in chat_candidates:
+            chat_candidates.append(candidate)
     for model_id in available_ids:
-        if is_chat_candidate(model_id) and model_id not in ordered_candidates:
-            ordered_candidates.append(model_id)
+        if is_chat_candidate(model_id) and model_id not in chat_candidates:
+            chat_candidates.append(model_id)
 
-    for model_id in ordered_candidates:
+    active_chat_model = None
+    for model_id in chat_candidates:
         try:
             if test_groq_chat_model(model_id):
-                return model_id, ordered_candidates
+                active_chat_model = model_id
+                break
         except Exception:
             continue
 
-    raise RuntimeError(f"Tidak ada model chat Groq yang lolos uji coba. Kandidat: {ordered_candidates}")
+    if not active_chat_model:
+        raise RuntimeError(f"Tidak ada model chat Groq yang lolos uji coba. Kandidat: {chat_candidates}")
+
+    vision_candidates: list[str] = []
+    for model_id in available_ids:
+        if is_vision_candidate(model_id) and model_id not in vision_candidates:
+            vision_candidates.append(model_id)
+
+    active_vision_model = None
+    for model_id in vision_candidates:
+        try:
+            if test_groq_chat_model(model_id):
+                active_vision_model = model_id
+                break
+        except Exception:
+            continue
+
+    return {
+        "chat_model": active_chat_model,
+        "chat_candidates": chat_candidates,
+        "vision_model": active_vision_model,
+        "vision_candidates": vision_candidates,
+    }
 
 
 def get_telegram_updates(offset: int | None) -> list:
@@ -116,26 +148,73 @@ def get_telegram_updates(offset: int | None) -> list:
     return data.get("result", [])
 
 
-def ask_groq(user_message: str, sender_name: str, model_name: str) -> str:
+def download_telegram_photo_base64(file_id: str) -> tuple[str, str]:
+    info_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile"
+    info_resp = requests.get(info_url, params={"file_id": file_id}, timeout=20)
+    info_resp.raise_for_status()
+    info_data = info_resp.json()
+    if not info_data.get("ok"):
+        raise RuntimeError(f"Gagal ambil getFile Telegram: {info_data}")
+
+    file_path = info_data["result"]["file_path"]
+    file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+    file_resp = requests.get(file_url, timeout=30)
+    file_resp.raise_for_status()
+
+    lower_path = file_path.lower()
+    if lower_path.endswith(".png"):
+        mime_type = "image/png"
+    elif lower_path.endswith(".webp"):
+        mime_type = "image/webp"
+    else:
+        mime_type = "image/jpeg"
+
+    b64_data = base64.b64encode(file_resp.content).decode("utf-8")
+    return b64_data, mime_type
+
+
+def ask_groq(
+    user_text: str,
+    sender_name: str,
+    model_name: str,
+    image_b64: str | None = None,
+    mime_type: str = "image/jpeg",
+) -> str:
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
     }
+
+    text_part = user_text.strip() if user_text and user_text.strip() else "Tolong komentari foto ini."
+
+    if image_b64:
+        user_content = [
+            {
+                "type": "text",
+                "text": f"[Pengirim: {sender_name}]\nPesan/Caption: {text_part}",
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mime_type};base64,{image_b64}",
+                },
+            },
+        ]
+    else:
+        user_content = f"[Pengirim: {sender_name}]\nPesan: {text_part}"
+
     payload = {
         "model": model_name,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"[Pengirim: {sender_name}]\nPesan: {user_message}",
-            },
+            {"role": "user", "content": user_content},
         ],
         "temperature": 0.85,
         "max_tokens": 600,
     }
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=40)
+    resp = requests.post(url, headers=headers, json=payload, timeout=45)
     if not resp.ok:
         raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text}")
     data = resp.json()
@@ -171,8 +250,11 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
         if not message:
             continue
 
-        text = message.get("text")
-        if not text:
+        text = message.get("text") or message.get("caption") or ""
+        photos = message.get("photo") or []
+        has_photo = len(photos) > 0
+
+        if not text.strip() and not has_photo:
             continue
 
         chat_id = message["chat"]["id"]
@@ -180,26 +262,58 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
         from_user = message.get("from", {})
         sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
 
-        prompt_text = (
-            "User baru saja menekan /start. Sambut dia dengan gaya galak, sarkas, cerdas, dan lucu."
-            if text.strip() == "/start"
-            else text
-        )
+        image_b64 = None
+        mime_type = "image/jpeg"
+        if has_photo:
+            best_photo = photos[-1]  # resolusi tertinggi
+            try:
+                image_b64, mime_type = download_telegram_photo_base64(best_photo["file_id"])
+            except Exception as e:
+                print(f"Gagal mengunduh foto update {update_id}: {e}", file=sys.stderr, flush=True)
+                send_telegram_message(
+                    chat_id,
+                    "Fotonya nyangkut di jalan atau gagal diunduh. Kirim ulang fotonya!",
+                    reply_to_message_id=message_id,
+                )
+                continue
+
+        if has_photo:
+            model_to_use = state["vision_model"]
+            if not model_to_use:
+                send_telegram_message(
+                    chat_id,
+                    "Maaf ya, di akun Groq ini belum ada model vision aktif buat ngelihat gambar. Kirim teks aja dulu!",
+                    reply_to_message_id=message_id,
+                )
+                continue
+            prompt_text = text.strip() or "Lihat foto ini lalu beri tanggapan dan analisis singkat."
+        else:
+            model_to_use = state["chat_model"]
+            prompt_text = (
+                "User baru saja menekan /start. Sambut dia dengan gaya galak, sarkas, cerdas, dan lucu."
+                if text.strip() == "/start"
+                else text.strip()
+            )
 
         try:
-            reply_text = ask_groq(prompt_text, sender_name, state["model"])
+            reply_text = ask_groq(prompt_text, sender_name, model_to_use, image_b64=image_b64, mime_type=mime_type)
             send_telegram_message(chat_id, reply_text, reply_to_message_id=message_id)
-            print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}) pakai {state['model']}.", flush=True)
+            print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}) pakai {model_to_use}.", flush=True)
         except Exception as e:
             err_str = str(e)
             switched = False
-            if "model_terms_required" in err_str or "model_not_found" in err_str:
-                for alt_model in state["candidates"]:
-                    if alt_model == state["model"]:
+            candidate_pool = state["vision_candidates"] if has_photo else state["chat_candidates"]
+
+            if "model_terms_required" in err_str or "model_not_found" in err_str or "400" in err_str:
+                for alt_model in candidate_pool:
+                    if alt_model == model_to_use:
                         continue
                     try:
-                        reply_text = ask_groq(prompt_text, sender_name, alt_model)
-                        state["model"] = alt_model
+                        reply_text = ask_groq(prompt_text, sender_name, alt_model, image_b64=image_b64, mime_type=mime_type)
+                        if has_photo:
+                            state["vision_model"] = alt_model
+                        else:
+                            state["chat_model"] = alt_model
                         send_telegram_message(chat_id, reply_text, reply_to_message_id=message_id)
                         print(f"Beralih ke model {alt_model} dan membalas {sender_name}.", flush=True)
                         switched = True
@@ -212,7 +326,7 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
                 try:
                     send_telegram_message(
                         chat_id,
-                        "Tadi otak saya sempat nge-freeze gara-gara pertanyaanmu. Coba kirim ulang sebentar lagi!",
+                        "Tadi otak saya sempat nge-freeze gara-gara kirimanmu. Coba ulang sebentar lagi!",
                         reply_to_message_id=message_id,
                     )
                 except Exception:
@@ -231,9 +345,17 @@ def main() -> None:
         print("Error: TELEGRAM_TOKEN atau GROQ_API_KEY kosong.", file=sys.stderr)
         sys.exit(1)
 
-    active_model, candidates = resolve_groq_model()
-    state = {"model": active_model, "candidates": candidates}
-    print(f"Model Groq aktif: {active_model}", flush=True)
+    models_info = resolve_groq_models()
+    state = {
+        "chat_model": models_info["chat_model"],
+        "chat_candidates": models_info["chat_candidates"],
+        "vision_model": models_info["vision_model"],
+        "vision_candidates": models_info["vision_candidates"],
+    }
+    print(
+        f"Model chat aktif: {state['chat_model']} | Model vision aktif: {state['vision_model'] or 'Tidak tersedia'}",
+        flush=True,
+    )
 
     start_time = time.monotonic()
     end_time = start_time + RUN_DURATION_SECONDS
