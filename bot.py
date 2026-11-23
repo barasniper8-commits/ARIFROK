@@ -19,6 +19,11 @@ RDP_PHOTO_URL = (
 RDP_APP_LINK = "https://sfile.co/FX05ITaeqgj"
 FOREX_MINI_APP_URL = "https://arianto12.lynk.id/p/analisa-forex"
 
+BOT_DESCRIPTION = (
+    "Asisten AI bot Telegram sarkas, cerdas, lucu, dan menggurui. "
+    "Akses RDP Vortex STD, panduan penggunaan, dan Mini App Analisa Forex."
+)
+
 BTN_FOREX = "📈 Analisa Forex"
 BTN_RDP = "⚡ RDP Vortex"
 BTN_GUIDE = "📖 Cara Pakai Vortex"
@@ -134,7 +139,7 @@ FALLBACK_CALM_REPLIES = [
 ]
 
 FALLBACK_ANGRY_REPLIES = [
-    "Sok ngetes ya, bangsat? Makanya belajar mikir dulu sebelum ngetik, anjing!",
+    "Sok ngetes ya, bangsat? Makanya belajar mikir dulu sebelum nikung logika, anjing!",
     "Ngetik ngawur mulu, anjing. Biasain pakai logika, jangan asal bacot, bangsat!",
     "Mancing emosi doang, bangsat? Ngomong yang bener, belajar fokus, anjing!",
     "Kelakuan lo bikin naik darah, anjing. Pahami dulu maksudnya sebelum nanya, bangsat!",
@@ -194,6 +199,33 @@ def ensure_angry_profanity(text: str) -> str:
         parts.insert(1, f"{word},")
         return " ".join(parts)
     return f"{text}, {word}!"
+
+
+def register_bot_description() -> None:
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setMyDescription"
+        resp = requests.post(url, json={"description": BOT_DESCRIPTION}, timeout=15)
+        if resp.ok:
+            print("Deskripsi bot (setMyDescription) berhasil diperbarui.", flush=True)
+        else:
+            print(f"Info: gagal setMyDescription ({resp.status_code}): {resp.text}", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"Info: gagal setMyDescription (diabaikan): {e}", file=sys.stderr, flush=True)
+
+
+def register_chat_menu_button() -> None:
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setChatMenuButton"
+        payload = {
+            "menu_button": {
+                "type": "web_app",
+                "text": "Analisa Forex",
+                "web_app": {"url": FOREX_MINI_APP_URL},
+            }
+        }
+        requests.post(url, json=payload, timeout=15)
+    except Exception as e:
+        print(f"Info: gagal setChatMenuButton (diabaikan): {e}", file=sys.stderr, flush=True)
 
 
 def register_bot_commands() -> None:
@@ -1090,6 +1122,8 @@ def main() -> None:
         print("Error: TELEGRAM_TOKEN atau GROQ_API_KEY kosong.", file=sys.stderr)
         sys.exit(1)
 
+    register_bot_description()
+    register_chat_menu_button()
     register_bot_commands()
 
     models_info = resolve_groq_models()
