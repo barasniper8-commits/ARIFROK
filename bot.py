@@ -8,25 +8,23 @@ import requests
 TELEGRAM_TOKEN = "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"
 GROQ_API_KEY = "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"
 
-RDP_PHOTO_PATH = "rdp_vortex.png"
-RDP_DOWNLOAD_LINK = "https://sfile.co/FX05ITaeqgj"
-RDP_CAPTION = (
-    "Aplikasi RDP / RDP Vortex:\n"
-    f"Link: {RDP_DOWNLOAD_LINK}\n\n"
-    "Cara pakai:\n"
-    "1. Buka link lalu download aplikasinya.\n"
-    "2. Install & buka aplikasi RDP Vortex.\n"
-    "3. Topup saldo/login lalu jalankan RDP sesuai panduan."
-)
-RDP_TRIGGERS = (
-    "minta rdp",
-    "minta aplikasi rdp",
-    "apk rdp",
+RDP_PHOTO_URL = "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhUqjQ4dcVH11aoJxMqho_CMCB9SnH4yepKrcVtuMD_FvAa-21zb-WL4M6TSQOPWf3vo54zKVIiPrdfhSH7AITPUsB_HRKm0ODtsRL_lZ7p_QU1aDfIyd2W6-OQdjPa1Xjc78aEk0lei_9YLG6_ZsgsNq9r5sEIHzUGMeY8B-Agl5Z6Puc38O02XrJujXU/s1600/1000196027.png"
+RDP_APP_LINK = "https://sfile.co/FX05ITaeqgj"
+
+RDP_KEYWORDS = (
     "aplikasi rdp",
-    "rdp vortex",
-    "vortex rdp",
+    "apk rdp",
+    "minta rdp",
+    "mau rdp",
     "link rdp",
     "download rdp",
+    "app rdp",
+    "rdp nya",
+    "rdpnya",
+    "aplikasi vps",
+    "apk vps",
+    "minta vps",
+    "link vps",
 )
 
 PREFERRED_GROQ_MODELS = [
@@ -75,28 +73,12 @@ def save_last_offset(offset: int) -> None:
 
 def is_rdp_request(text: str) -> bool:
     lower = " ".join(text.lower().split())
-    if any(trig in lower for trig in RDP_TRIGGERS):
+    if any(kw in lower for kw in RDP_KEYWORDS):
         return True
-    if "rdp" in lower and ("minta" in lower or "apk" in lower or "aplikasi" in lower or "link" in lower):
-        return True
-    if "vortex" in lower and ("rdp" in lower or "apk" in lower or "aplikasi" in lower or "link" in lower):
+    tokens = set(lower.replace("?", " ").replace("!", " ").replace(",", " ").split())
+    if "rdp" in tokens and (tokens & {"minta", "mau", "link", "download", "unduh", "apk", "aplikasi", "mana", "bagi"}):
         return True
     return False
-
-
-def send_telegram_photo(chat_id: int, photo_path: str, caption: str, reply_to_message_id: int | None = None) -> None:
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-    data = {
-        "chat_id": str(chat_id),
-        "caption": caption,
-    }
-    if reply_to_message_id is not None:
-        data["reply_to_message_id"] = str(reply_to_message_id)
-
-    with open(photo_path, "rb") as img_file:
-        files = {"photo": img_file}
-        resp = requests.post(url, data=data, files=files, timeout=30)
-    resp.raise_for_status()
 
 
 def is_chat_candidate(model_id: str) -> bool:
@@ -236,6 +218,8 @@ def ask_groq(
     model_name: str,
     image_b64: str | None = None,
     mime_type: str = "image/jpeg",
+    extra_instruction: str = "",
+    max_words: int = 30,
 ) -> str:
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -244,12 +228,13 @@ def ask_groq(
     }
 
     text_part = user_text.strip() if user_text and user_text.strip() else "Tolong komentari foto ini."
+    suffix = f"\n{extra_instruction}" if extra_instruction else ""
 
     if image_b64:
         user_content = [
             {
                 "type": "text",
-                "text": f"[Pengirim: {sender_name}]\nPesan/Caption: {text_part}\n(Balas 1-30 kata)",
+                "text": f"[Pengirim: {sender_name}]\nPesan/Caption: {text_part}{suffix}\n(Balas 1-{max_words} kata)",
             },
             {
                 "type": "image_url",
@@ -259,7 +244,7 @@ def ask_groq(
             },
         ]
     else:
-        user_content = f"[Pengirim: {sender_name}]\nPesan: {text_part}\n(Balas 1-30 kata)"
+        user_content = f"[Pengirim: {sender_name}]\nPesan: {text_part}{suffix}\n(Balas 1-{max_words} kata)"
 
     payload = {
         "model": model_name,
@@ -276,7 +261,7 @@ def ask_groq(
         raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text}")
     data = resp.json()
     raw_reply = data["choices"][0]["message"]["content"].strip()
-    return clamp_words(raw_reply, max_words=30)
+    return clamp_words(raw_reply, max_words=max_words)
 
 
 def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int | None = None) -> None:
@@ -290,6 +275,21 @@ def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int | No
 
     resp = requests.post(url, json=payload, timeout=20)
     resp.raise_for_status()
+
+
+def send_telegram_photo(chat_id: int, photo_url: str, caption: str, reply_to_message_id: int | None = None) -> None:
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    payload = {
+        "chat_id": chat_id,
+        "photo": photo_url,
+        "caption": caption,
+    }
+    if reply_to_message_id is not None:
+        payload["reply_to_message_id"] = reply_to_message_id
+
+    resp = requests.post(url, json=payload, timeout=25)
+    if not resp.ok:
+        raise RuntimeError(f"Telegram sendPhoto HTTP {resp.status_code}: {resp.text}")
 
 
 def poll_once(current_offset: int | None, state: dict) -> int | None:
@@ -320,16 +320,26 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
         from_user = message.get("from", {})
         sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
 
-        # Cek permintaan aplikasi RDP / RDP Vortex
+        # Cek jika user meminta aplikasi/link RDP
         if not has_photo and text.strip() and is_rdp_request(text):
             try:
-                if os.path.exists(RDP_PHOTO_PATH):
-                    send_telegram_photo(chat_id, RDP_PHOTO_PATH, RDP_CAPTION, reply_to_message_id=message_id)
-                else:
-                    send_telegram_message(chat_id, RDP_CAPTION, reply_to_message_id=message_id)
-                print(f"Mengirim info RDP Vortex ke {sender_name} (chat_id={chat_id}).", flush=True)
+                intro_line = ask_groq(
+                    text.strip(),
+                    sender_name,
+                    state["chat_model"],
+                    extra_instruction="User minta aplikasi RDP. Kasih komentar galak, sarkas, cerdas, dan lucu (maksimal 18 kata) tanpa menulis URL.",
+                    max_words=18,
+                )
+            except Exception:
+                intro_line = " Nih aplikasi RDP-nya, jangan kebanyakan gaya pas pakai."
+
+            final_caption = f"{intro_line}\nLink: {RDP_APP_LINK}"
+            try:
+                send_telegram_photo(chat_id, RDP_PHOTO_URL, final_caption, reply_to_message_id=message_id)
+                print(f"Mengirim foto & link RDP ke {sender_name} (chat_id={chat_id}).", flush=True)
             except Exception as e:
-                print(f"Gagal kirim info RDP update {update_id}: {e}", file=sys.stderr, flush=True)
+                print(f"Gagal kirim foto RDP: {e}", file=sys.stderr, flush=True)
+                send_telegram_message(chat_id, final_caption, reply_to_message_id=message_id)
             continue
 
         image_b64 = None
