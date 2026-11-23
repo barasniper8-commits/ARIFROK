@@ -1,6 +1,4 @@
-const https = require('https');
-
-module.exports = function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -10,7 +8,10 @@ module.exports = function handler(req, res) {
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({
+      success: false,
+      error: 'Method not allowed. Gunakan POST.'
+    });
   }
 
   const token = process.env.GITHUB_TOKEN;
@@ -20,72 +21,47 @@ module.exports = function handler(req, res) {
 
   if (!token || !owner || !repo || !workflowId) {
     return res.status(500).json({
-      error: 'Konfigurasi Environment Variables di Vercel belum lengkap.'
+      success: false,
+      error: 'Environment Variables di Vercel belum lengkap (cek GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_WORKFLOW).'
     });
   }
 
-  let bodyData = req.body;
-  if (typeof bodyData === 'string') {
-    try {
-      bodyData = JSON.parse(bodyData);
-    } catch (e) {
-      bodyData = {};
-    }
-  }
-  bodyData = bodyData || {};
+  const { ref = 'main', inputs = {} } = req.body || {};
 
-  const ref = bodyData.ref || 'main';
-  const inputs = bodyData.inputs || {};
-  const payload = JSON.stringify({ ref, inputs });
-
-  const options = {
-    hostname: 'api.github.com',
-    path: `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`,
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload),
-      'User-Agent': 'Vercel-Workflow-Power-Switch'
-    }
-  };
-
-  const ghReq = https.request(options, (ghRes) => {
-    let raw = '';
-    ghRes.on('data', (chunk) => {
-      raw += chunk;
-    });
-    ghRes.on('end', () => {
-      if (ghRes.statusCode === 204) {
-        return res.status(200).json({
-          success: true,
-          message: `Workflow (${workflowId}) di branch "${ref}" berhasil dijalankan!`
-        });
+  try {
+    const ghRes = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          ref,
+          inputs
+        })
       }
+    );
 
-      let parsed = {};
-      try {
-        parsed = raw ? JSON.parse(raw) : {};
-      } catch (e) {
-        parsed = {};
-      }
-
-      return res.status(ghRes.statusCode || 500).json({
-        success: false,
-        error: parsed.message || `Gagal memicu workflow (HTTP ${ghRes.statusCode})`
+    if (ghRes.status === 204) {
+      return res.status(200).json({
+        success: true,
+        message: `Workflow (${workflowId}) di branch "${ref}" berhasil dijalankan!`
       });
-    });
-  });
+    }
 
-  ghReq.on('error', () => {
+    const errData = await ghRes.json().catch(() => ({}));
+    return res.status(ghRes.status).json({
+      success: false,
+      error: errData.message || `Gagal memicu workflow (HTTP ${ghRes.status})`
+    });
+  } catch (err) {
     return res.status(500).json({
       success: false,
-      error: 'Terjadi kesalahan jaringan saat menghubungi GitHub API.'
+      error: `Gagal menghubungi GitHub API: ${err.message}`
     });
-  });
-
-  ghReq.write(payload);
-  ghReq.end();
-};
+  }
+}
