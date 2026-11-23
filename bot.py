@@ -650,6 +650,7 @@ def send_telegram_photo_bytes(
     caption: str = "",
     reply_to_message_id: int | None = None,
     parse_mode: str | None = "HTML",
+    reply_markup: dict | None = None,
 ) -> None:
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     data: dict = {"chat_id": str(chat_id)}
@@ -659,6 +660,8 @@ def send_telegram_photo_bytes(
         data["parse_mode"] = parse_mode
     if reply_to_message_id is not None:
         data["reply_to_message_id"] = str(reply_to_message_id)
+    if reply_markup is not None:
+        data["reply_markup"] = json.dumps(reply_markup)
 
     files = {"photo": (filename, photo_bytes)}
     resp = requests.post(url, data=data, files=files, timeout=25)
@@ -954,28 +957,13 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             welcome_text = build_welcome_message(sender_name, state)
             profile_photo = fetch_user_profile_photo_bytes(user_id)
 
-            try:
-                styled_welcome = (
-                    f"<b>⚡ AI BOT READY</b>\n"
-                    f"<blockquote>{html.escape(welcome_text)}</blockquote>\n"
-                    f"<i>Pilih menu atau buka Mini App Analisa Forex di bawah.</i>"
-                )
-                send_telegram_message(
-                    chat_id,
-                    styled_welcome,
-                    reply_to_message_id=message_id,
-                    parse_mode="HTML",
-                    reply_markup=get_start_inline_keyboard(),
-                )
-                send_telegram_message(
-                    chat_id,
-                    "<b>🎛 Menu Cepat Aktif</b>",
-                    parse_mode="HTML",
-                    reply_markup=get_main_reply_keyboard(),
-                )
-            except Exception as e:
-                print(f"Gagal kirim pesan selamat datang ke {sender_name}: {e}", file=sys.stderr, flush=True)
+            styled_welcome = (
+                f"<b>⚡ AI BOT READY</b>\n"
+                f"<blockquote>{html.escape(welcome_text)}</blockquote>\n"
+                f"<i>Pilih menu atau buka Mini App Analisa Forex di bawah.</i>"
+            )
 
+            sent_combined_photo = False
             if profile_photo:
                 photo_bytes, filename = profile_photo
                 try:
@@ -983,13 +971,38 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                         chat_id,
                         photo_bytes,
                         filename=filename,
-                        caption=f"📸 <b>Foto profil:</b> {html.escape(sender_name)}",
+                        caption=styled_welcome,
+                        reply_to_message_id=message_id,
                         parse_mode="HTML",
+                        reply_markup=get_start_inline_keyboard(),
+                    )
+                    sent_combined_photo = True
+                except Exception as e:
+                    print(f"Info: gagal kirim foto profil menyatu dengan AI BOT READY (fallback teks): {e}", file=sys.stderr, flush=True)
+
+            if not sent_combined_photo:
+                try:
+                    send_telegram_message(
+                        chat_id,
+                        styled_welcome,
+                        reply_to_message_id=message_id,
+                        parse_mode="HTML",
+                        reply_markup=get_start_inline_keyboard(),
                     )
                 except Exception as e:
-                    print(f"Info: gagal kirim foto profil {sender_name} (diabaikan): {e}", file=sys.stderr, flush=True)
+                    print(f"Gagal kirim pesan selamat datang ke {sender_name}: {e}", file=sys.stderr, flush=True)
 
-            print(f"Menyambut {sender_name} (/start) dengan foto profil={'ada' if profile_photo else 'tidak ada/gagal'}.", flush=True)
+            try:
+                send_telegram_message(
+                    chat_id,
+                    "<b>🎛 Menu Cepat Aktif</b>",
+                    parse_mode="HTML",
+                    reply_markup=get_main_reply_keyboard(),
+                )
+            except Exception as e:
+                print(f"Info: gagal aktifkan reply keyboard untuk {sender_name}: {e}", file=sys.stderr, flush=True)
+
+            print(f"Menyambut {sender_name} (/start) menyatu={'ya' if sent_combined_photo else 'tidak'}.", flush=True)
             continue
 
         if not has_photo and text.strip() in (BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
