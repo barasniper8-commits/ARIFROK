@@ -5,8 +5,8 @@ import time
 import requests
 
 TELEGRAM_TOKEN = "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"
-OPENROUTER_API_KEY = "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"
-OPENROUTER_MODEL = "google/gemini-2.5-pro"
+GROQ_API_KEY = "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"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 OFFSET_FILE = "last_offset.json"
 RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam = 21.600 detik
@@ -55,16 +55,14 @@ def get_telegram_updates(offset: int | None) -> list:
     return data.get("result", [])
 
 
-def ask_openrouter(user_message: str, sender_name: str) -> str:
-    url = "https://openrouter.ai/api/v1/chat/completions"
+def ask_groq(user_message: str, sender_name: str) -> str:
+    url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com",
-        "X-Title": "Telegram Sarcastic Bot",
     }
     payload = {
-        "model": OPENROUTER_MODEL,
+        "model": GROQ_MODEL,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -77,7 +75,8 @@ def ask_openrouter(user_message: str, sender_name: str) -> str:
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=40)
-    resp.raise_for_status()
+    if not resp.ok:
+        raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text}")
     data = resp.json()
     return data["choices"][0]["message"]["content"].strip()
 
@@ -127,7 +126,7 @@ def poll_once(current_offset: int | None) -> int | None:
         )
 
         try:
-            reply_text = ask_openrouter(prompt_text, sender_name)
+            reply_text = ask_groq(prompt_text, sender_name)
             send_telegram_message(chat_id, reply_text, reply_to_message_id=message_id)
             print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}).", flush=True)
         except Exception as e:
@@ -150,8 +149,8 @@ def poll_once(current_offset: int | None) -> int | None:
 
 
 def main() -> None:
-    if not TELEGRAM_TOKEN or not OPENROUTER_API_KEY:
-        print("Error: TELEGRAM_TOKEN atau OPENROUTER_API_KEY kosong.", file=sys.stderr)
+    if not TELEGRAM_TOKEN or not GROQ_API_KEY:
+        print("Error: TELEGRAM_TOKEN atau GROQ_API_KEY kosong.", file=sys.stderr)
         sys.exit(1)
 
     start_time = time.monotonic()
