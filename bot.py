@@ -23,16 +23,16 @@ RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam = 21.600 detik
 POLL_INTERVAL_SECONDS = 5          # jeda cek pesan baru (detik)
 
 SYSTEM_PROMPT = """Kamu adalah asisten AI di Telegram dengan kepribadian:
-- GALAK & SARKAS: Nyinyir tapi tetap kena, suka menyindir pertanyaan yang malas dipikir, namun tidak melewati batas kasar yang tidak perlu.
+- GALAK & SARKAS: Nyinyir tapi tetap kena, suka menyindir pertanyaan yang malas dipikir.
 - CERDAS: Jawabanmu akurat, tajam, logis, dan berbobot—jangan ngawur meski sambil nyindir.
 - LUCU: Selipkan punchline kering, analogi absurd, atau humor receh yang pas di momennya.
 
-Aturan gaya bahasa:
-1. Gunakan Bahasa Indonesia santai yang mengalir.
-2. Jangan pernah bilang "Sebagai AI..." atau terdengar seperti customer service yang terlalu ramah.
-3. Jawab inti masalahnya dengan benar, tapi bungkus dengan sarkasme dan humor cerdas.
-4. Ringkas dan padat, jangan bertele-tele kecuali memang perlu penjelasan teknis.
-5. Jika ada foto yang dikirim, perhatikan detailnya dan komentar/jawab sesuai konteks foto serta caption-nya.
+Aturan wajib:
+1. WAJIB singkat dan padat: panjang balasan HARUS antara 1 sampai 30 kata saja. Jangan pernah lebih dari 30 kata.
+2. Kalau lagi marah, kesal, atau disulut pesan nyebelin/ngawur, boleh ngegas pakai kata "anjing" atau "bangsat" secukupnya sebagai umpatan ekspresif saat marah, tapi tetap fokus menyindir dan menjawab intinya. Jangan dipakai di tiap chat kalau lagi biasa aja.
+3. Gunakan Bahasa Indonesia santai yang mengalir.
+4. Jangan pernah bilang "Sebagai AI..." atau terdengar seperti customer service yang terlalu ramah.
+5. Jika ada foto yang dikirim, perhatikan detailnya dan komentar/jawab sesuai konteks foto serta caption-nya dalam 1–30 kata.
 """
 
 
@@ -173,6 +173,16 @@ def download_telegram_photo_base64(file_id: str) -> tuple[str, str]:
     return b64_data, mime_type
 
 
+def clamp_words(text: str, max_words: int = 30) -> str:
+    clean = " ".join(text.strip().split())
+    if not clean:
+        return "Singkat banget ya."
+    words = clean.split(" ")
+    if len(words) > max_words:
+        return " ".join(words[:max_words]).rstrip(",.;:!?") + "."
+    return clean
+
+
 def ask_groq(
     user_text: str,
     sender_name: str,
@@ -192,7 +202,7 @@ def ask_groq(
         user_content = [
             {
                 "type": "text",
-                "text": f"[Pengirim: {sender_name}]\nPesan/Caption: {text_part}",
+                "text": f"[Pengirim: {sender_name}]\nPesan/Caption: {text_part}\n(Balas 1-30 kata)",
             },
             {
                 "type": "image_url",
@@ -202,7 +212,7 @@ def ask_groq(
             },
         ]
     else:
-        user_content = f"[Pengirim: {sender_name}]\nPesan: {text_part}"
+        user_content = f"[Pengirim: {sender_name}]\nPesan: {text_part}\n(Balas 1-30 kata)"
 
     payload = {
         "model": model_name,
@@ -210,15 +220,16 @@ def ask_groq(
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
-        "temperature": 0.85,
-        "max_tokens": 600,
+        "temperature": 0.9,
+        "max_tokens": 120,
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=45)
     if not resp.ok:
         raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text}")
     data = resp.json()
-    return data["choices"][0]["message"]["content"].strip()
+    raw_reply = data["choices"][0]["message"]["content"].strip()
+    return clamp_words(raw_reply, max_words=30)
 
 
 def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int | None = None) -> None:
@@ -265,14 +276,14 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
         image_b64 = None
         mime_type = "image/jpeg"
         if has_photo:
-            best_photo = photos[-1]  # resolusi tertinggi
+            best_photo = photos[-1]
             try:
                 image_b64, mime_type = download_telegram_photo_base64(best_photo["file_id"])
             except Exception as e:
                 print(f"Gagal mengunduh foto update {update_id}: {e}", file=sys.stderr, flush=True)
                 send_telegram_message(
                     chat_id,
-                    "Fotonya nyangkut di jalan atau gagal diunduh. Kirim ulang fotonya!",
+                    "Fotonya nyangkut, kirim ulang!",
                     reply_to_message_id=message_id,
                 )
                 continue
@@ -282,15 +293,15 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
             if not model_to_use:
                 send_telegram_message(
                     chat_id,
-                    "Maaf ya, di akun Groq ini belum ada model vision aktif buat ngelihat gambar. Kirim teks aja dulu!",
+                    "Model vision lagi absen, kirim teks aja dulu.",
                     reply_to_message_id=message_id,
                 )
                 continue
-            prompt_text = text.strip() or "Lihat foto ini lalu beri tanggapan dan analisis singkat."
+            prompt_text = text.strip() or "Lihat foto ini lalu beri tanggapan singkat."
         else:
             model_to_use = state["chat_model"]
             prompt_text = (
-                "User baru saja menekan /start. Sambut dia dengan gaya galak, sarkas, cerdas, dan lucu."
+                "User baru menekan /start. Sambut singkat dengan galak, sarkas, cerdas, dan lucu."
                 if text.strip() == "/start"
                 else text.strip()
             )
@@ -326,7 +337,7 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
                 try:
                     send_telegram_message(
                         chat_id,
-                        "Tadi otak saya sempat nge-freeze gara-gara kirimanmu. Coba ulang sebentar lagi!",
+                        "Otak gue nge-freeze bentar, ulangi lagi!",
                         reply_to_message_id=message_id,
                     )
                 except Exception:
