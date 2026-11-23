@@ -16,7 +16,9 @@ RDP_PHOTO_URL = (
     "s1600/1000196027.png"
 )
 RDP_APP_LINK = "https://sfile.co/FX05ITaeqgj"
+FOREX_MINI_APP_URL = "https://arianto12.lynk.id/p/analisa-forex"
 
+BTN_FOREX = "📈 Analisa Forex"
 BTN_RDP = "⚡ RDP Vortex"
 BTN_GUIDE = "📖 Cara Pakai Vortex"
 BTN_ROAST = "🔥 Roast Gua"
@@ -113,21 +115,38 @@ Aturan wajib:
 """
 
 
+def register_bot_commands() -> None:
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/setMyCommands"
+        commands = [
+            {"command": "start", "description": "Mulai & buka menu utama"},
+            {"command": "menu", "description": "Tampilkan menu & mini app"},
+            {"command": "forex", "description": "Buka info Mini App Analisa Forex"},
+            {"command": "rdp", "description": "Ambil link & info RDP Vortex"},
+            {"command": "status", "description": "Cek model & sisa waktu sesi"},
+        ]
+        requests.post(url, json={"commands": commands}, timeout=15)
+    except Exception as e:
+        print(f"Info: gagal setMyCommands (diabaikan): {e}", file=sys.stderr, flush=True)
+
+
 def get_main_reply_keyboard() -> dict:
     return {
         "keyboard": [
+            [{"text": BTN_FOREX, "web_app": {"url": FOREX_MINI_APP_URL}}],
             [{"text": BTN_RDP}, {"text": BTN_GUIDE}],
             [{"text": BTN_ROAST}, {"text": BTN_STATUS}],
         ],
         "resize_keyboard": True,
         "is_persistent": True,
-        "input_field_placeholder": "Ketik pesan atau pilih menu...",
+        "input_field_placeholder": "Ketik pesan atau buka Mini App Analisa Forex...",
     }
 
 
 def get_start_inline_keyboard() -> dict:
     return {
         "inline_keyboard": [
+            [{"text": "📈 Buka Mini App Analisa Forex", "web_app": {"url": FOREX_MINI_APP_URL}}],
             [
                 {"text": "⚡ Ambil RDP Vortex", "callback_data": "menu_rdp"},
                 {"text": "📖 Panduan Vortex", "callback_data": "menu_guide"},
@@ -135,6 +154,15 @@ def get_start_inline_keyboard() -> dict:
             [
                 {"text": "📊 Status Bot", "callback_data": "menu_status"},
             ],
+        ]
+    }
+
+
+def get_forex_inline_keyboard() -> dict:
+    return {
+        "inline_keyboard": [
+            [{"text": "📈 Launch Analisa Forex Mini App", "web_app": {"url": FOREX_MINI_APP_URL}}],
+            [{"text": "🔗 Buka di Browser", "url": FOREX_MINI_APP_URL}],
         ]
     }
 
@@ -439,7 +467,6 @@ def send_telegram_message(
 
     resp = requests.post(url, json=payload, timeout=20)
     if not resp.ok and parse_mode:
-        # Fallback polos jika ada karakter HTML tak terduga
         fallback_payload = {"chat_id": chat_id, "text": text}
         if reply_to_message_id is not None:
             fallback_payload["reply_to_message_id"] = reply_to_message_id
@@ -524,6 +551,36 @@ def build_welcome_message(sender_name: str, state: dict) -> str:
     except Exception as e:
         print(f"Gagal bikin ucapan /start via Groq: {e}", file=sys.stderr, flush=True)
         return clamp_words(default_welcome, max_words=30)
+
+
+def send_forex_mini_app(chat_id: int, sender_name: str, state: dict, reply_to_message_id: int | None = None) -> None:
+    try:
+        note = ask_groq(
+            "buka mini app analisa forex",
+            sender_name,
+            state["chat_model"],
+            extra_instruction=(
+                "User mau buka Mini App Analisa Forex. Beri komentar sarkas, cerdas, dan lucu "
+                "bahwa Mini App ada di tombol bawah, jangan asal open posisi tanpa analisa. Maksimal 22 kata."
+            ),
+            max_words=22,
+            max_tokens=256,
+        )
+    except Exception:
+        note = "Buka Mini App Analisa Forex di tombol bawah, jangan asal entry sambil ngantuk."
+
+    msg = (
+        f"<b>📈 ANALISA FOREX MINI APP</b>\n"
+        f"<blockquote>{html.escape(note)}</blockquote>\n"
+        f"🔗 <b>URL:</b> <code>{html.escape(FOREX_MINI_APP_URL)}</code>"
+    )
+    send_telegram_message(
+        chat_id,
+        msg,
+        reply_to_message_id=reply_to_message_id,
+        parse_mode="HTML",
+        reply_markup=get_forex_inline_keyboard(),
+    )
 
 
 def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict, reply_to_message_id: int | None = None) -> None:
@@ -638,7 +695,9 @@ def handle_menu_action(
     end_time: float,
     reply_to_message_id: int | None = None,
 ) -> None:
-    if action_key == "rdp":
+    if action_key == "forex":
+        send_forex_mini_app(chat_id, sender_name, state, reply_to_message_id=reply_to_message_id)
+    elif action_key == "rdp":
         send_rdp_package(chat_id, sender_name, "minta rdp vortex", state, reply_to_message_id=reply_to_message_id)
     elif action_key == "guide":
         send_vortex_guide(chat_id, sender_name, state, reply_to_message_id=reply_to_message_id)
@@ -674,7 +733,6 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
         if update_id is not None:
             max_update_id = update_id if max_update_id is None else max(max_update_id, update_id)
 
-        # Tangani klik tombol inline menu
         callback = upd.get("callback_query")
         if callback:
             cb_id = callback.get("id")
@@ -689,6 +747,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
 
             if cb_chat_id:
                 action_map = {
+                    "menu_forex": "forex",
                     "menu_rdp": "rdp",
                     "menu_guide": "guide",
                     "menu_status": "status",
@@ -705,6 +764,34 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
         if not message:
             continue
 
+        # Data yang dikirim dari dalam Mini App (Telegram.WebApp.sendData)
+        web_app_data = message.get("web_app_data")
+        if web_app_data:
+            chat_id = message["chat"]["id"]
+            message_id = message.get("message_id")
+            from_user = message.get("from", {})
+            sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
+            raw_payload = (web_app_data.get("data") or "").strip()
+            try:
+                ai_resp = ask_groq(
+                    raw_payload or "kirim data dari mini app analisa forex",
+                    sender_name,
+                    state["chat_model"],
+                    extra_instruction="User mengirim data dari Mini App Analisa Forex. Tanggapi tajam, sarkas, dan cerdas maksimal 26 kata.",
+                    max_words=26,
+                    max_tokens=256,
+                )
+            except Exception:
+                ai_resp = "Data dari Mini App udah masuk, sekarang cek risk-reward lo sebelum asal entry."
+            send_telegram_message(
+                chat_id,
+                format_styled_reply("MINI APP DATA", ai_resp),
+                reply_to_message_id=message_id,
+                parse_mode="HTML",
+                reply_markup=get_main_reply_keyboard(),
+            )
+            continue
+
         text = message.get("text") or message.get("caption") or ""
         photos = message.get("photo") or []
         has_photo = len(photos) > 0
@@ -718,6 +805,11 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
         user_id = from_user.get("id")
         sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
 
+        # Perintah /forex
+        if not has_photo and text.strip().startswith("/forex"):
+            send_forex_mini_app(chat_id, sender_name, state, reply_to_message_id=message_id)
+            continue
+
         # Alur khusus saat tombol Mulai (/start) atau /menu ditekan
         if not has_photo and (text.strip().startswith("/start") or text.strip().startswith("/menu")):
             welcome_text = build_welcome_message(sender_name, state)
@@ -727,7 +819,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 styled_welcome = (
                     f"<b>⚡ AI BOT READY</b>\n"
                     f"<blockquote>{html.escape(welcome_text)}</blockquote>\n"
-                    f"<i>Pilih menu di bawah atau langsung ketik pesan.</i>"
+                    f"<i>Pilih menu atau buka Mini App Analisa Forex di bawah.</i>"
                 )
                 send_telegram_message(
                     chat_id,
@@ -736,7 +828,6 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                     parse_mode="HTML",
                     reply_markup=get_start_inline_keyboard(),
                 )
-                # Pastikan reply keyboard muncul di layar user
                 send_telegram_message(
                     chat_id,
                     "<b>🎛 Menu Cepat Aktif</b>",
@@ -763,9 +854,10 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             continue
 
         # Tombol menu tetap dari ReplyKeyboardMarkup
-        if not has_photo and text.strip() in (BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
+        if not has_photo and text.strip() in (BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
             try:
                 quick_map = {
+                    BTN_FOREX: "forex",
                     BTN_RDP: "rdp",
                     BTN_GUIDE: "guide",
                     BTN_ROAST: "roast",
@@ -892,6 +984,8 @@ def main() -> None:
     if not TELEGRAM_TOKEN or not GROQ_API_KEY:
         print("Error: TELEGRAM_TOKEN atau GROQ_API_KEY kosong.", file=sys.stderr)
         sys.exit(1)
+
+    register_bot_commands()
 
     models_info = resolve_groq_models()
     state = {
