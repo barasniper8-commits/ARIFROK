@@ -8,6 +8,27 @@ import requests
 TELEGRAM_TOKEN = "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"
 GROQ_API_KEY = "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"
 
+RDP_PHOTO_PATH = "rdp_vortex.png"
+RDP_DOWNLOAD_LINK = "https://sfile.co/FX05ITaeqgj"
+RDP_CAPTION = (
+    "Aplikasi RDP / RDP Vortex:\n"
+    f"Link: {RDP_DOWNLOAD_LINK}\n\n"
+    "Cara pakai:\n"
+    "1. Buka link lalu download aplikasinya.\n"
+    "2. Install & buka aplikasi RDP Vortex.\n"
+    "3. Topup saldo/login lalu jalankan RDP sesuai panduan."
+)
+RDP_TRIGGERS = (
+    "minta rdp",
+    "minta aplikasi rdp",
+    "apk rdp",
+    "aplikasi rdp",
+    "rdp vortex",
+    "vortex rdp",
+    "link rdp",
+    "download rdp",
+)
+
 PREFERRED_GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
@@ -50,6 +71,32 @@ def load_last_offset() -> int | None:
 def save_last_offset(offset: int) -> None:
     with open(OFFSET_FILE, "w", encoding="utf-8") as f:
         json.dump({"offset": offset}, f)
+
+
+def is_rdp_request(text: str) -> bool:
+    lower = " ".join(text.lower().split())
+    if any(trig in lower for trig in RDP_TRIGGERS):
+        return True
+    if "rdp" in lower and ("minta" in lower or "apk" in lower or "aplikasi" in lower or "link" in lower):
+        return True
+    if "vortex" in lower and ("rdp" in lower or "apk" in lower or "aplikasi" in lower or "link" in lower):
+        return True
+    return False
+
+
+def send_telegram_photo(chat_id: int, photo_path: str, caption: str, reply_to_message_id: int | None = None) -> None:
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    data = {
+        "chat_id": str(chat_id),
+        "caption": caption,
+    }
+    if reply_to_message_id is not None:
+        data["reply_to_message_id"] = str(reply_to_message_id)
+
+    with open(photo_path, "rb") as img_file:
+        files = {"photo": img_file}
+        resp = requests.post(url, data=data, files=files, timeout=30)
+    resp.raise_for_status()
 
 
 def is_chat_candidate(model_id: str) -> bool:
@@ -272,6 +319,18 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
         message_id = message.get("message_id")
         from_user = message.get("from", {})
         sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
+
+        # Cek permintaan aplikasi RDP / RDP Vortex
+        if not has_photo and text.strip() and is_rdp_request(text):
+            try:
+                if os.path.exists(RDP_PHOTO_PATH):
+                    send_telegram_photo(chat_id, RDP_PHOTO_PATH, RDP_CAPTION, reply_to_message_id=message_id)
+                else:
+                    send_telegram_message(chat_id, RDP_CAPTION, reply_to_message_id=message_id)
+                print(f"Mengirim info RDP Vortex ke {sender_name} (chat_id={chat_id}).", flush=True)
+            except Exception as e:
+                print(f"Gagal kirim info RDP update {update_id}: {e}", file=sys.stderr, flush=True)
+            continue
 
         image_b64 = None
         mime_type = "image/jpeg"
