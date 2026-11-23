@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import random
 import sys
 import time
 import requests
@@ -36,6 +37,13 @@ PREFERRED_GROQ_MODELS = [
 ]
 PREFERRED_VISION_KEYWORDS = ("vision", "4o", "scout", "maverick", "vl")
 EXCLUDED_MODEL_KEYWORDS = ("whisper", "orpheus", "tts", "guard", "safeguard", "prompt-guard")
+
+FALLBACK_REPLIES = [
+    "Halo doang? Kirim isi otakmu dong, jangan cuma nyapa.",
+    "Ngetik 'halo' doang nggak butuh IQ tinggi, lanjut ke intinya.",
+    "Sapaanmu receh banget, untung gue lagi nggak mau bayar pulsa.",
+    "Halo juga. Mau nanya apa sih, keburu jam pasir abis.",
+]
 
 OFFSET_FILE = "last_offset.json"
 RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam = 21.600 detik
@@ -100,7 +108,7 @@ def test_groq_chat_model(model_name: str) -> bool:
     payload = {
         "model": model_name,
         "messages": [{"role": "user", "content": "balas ok"}],
-        "max_tokens": 5,
+        "max_tokens": 16,
     }
     resp = requests.post(url, headers=headers, json=payload, timeout=25)
     return resp.ok
@@ -203,9 +211,9 @@ def download_telegram_photo_base64(file_id: str) -> tuple[str, str]:
 
 
 def clamp_words(text: str, max_words: int = 30) -> str:
-    clean = " ".join(text.strip().split())
+    clean = " ".join((text or "").strip().split())
     if not clean:
-        return "Singkat banget ya."
+        return random.choice(FALLBACK_REPLIES)
     words = clean.split(" ")
     if len(words) > max_words:
         return " ".join(words[:max_words]).rstrip(",.;:!?") + "."
@@ -220,6 +228,7 @@ def ask_groq(
     mime_type: str = "image/jpeg",
     extra_instruction: str = "",
     max_words: int = 30,
+    max_tokens: int = 512,
 ) -> str:
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -253,14 +262,17 @@ def ask_groq(
             {"role": "user", "content": user_content},
         ],
         "temperature": 0.9,
-        "max_tokens": 120,
+        "max_tokens": max_tokens,
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=45)
     if not resp.ok:
         raise RuntimeError(f"Groq HTTP {resp.status_code}: {resp.text}")
     data = resp.json()
-    raw_reply = data["choices"][0]["message"]["content"].strip()
+    msg = (data.get("choices") or [{}])[0].get("message") or {}
+    raw_reply = (msg.get("content") or "").strip()
+    if not raw_reply:
+        print(f"Peringatan: respon kosong dari {model_name}: {data}", file=sys.stderr, flush=True)
     return clamp_words(raw_reply, max_words=max_words)
 
 
@@ -329,9 +341,11 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
                     state["chat_model"],
                     extra_instruction="User minta aplikasi RDP. Kasih komentar galak, sarkas, cerdas, dan lucu (maksimal 18 kata) tanpa menulis URL.",
                     max_words=18,
+                    max_tokens=256,
                 )
-            except Exception:
-                intro_line = " Nih aplikasi RDP-nya, jangan kebanyakan gaya pas pakai."
+            except Exception as e:
+                print(f"Gagal bikin intro RDP: {e}", file=sys.stderr, flush=True)
+                intro_line = "Nih aplikasi RDP-nya, jangan kebanyakan gaya pas pakai."
 
             final_caption = f"{intro_line}\nLink: {RDP_APP_LINK}"
             try:
@@ -376,7 +390,15 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
             )
 
         try:
-            reply_text = ask_groq(prompt_text, sender_name, model_to_use, image_b64=image_b64, mime_type=mime_type)
+            reply_text = ask_groq(
+                prompt_text,
+                sender_name,
+                model_to_use,
+                image_b64=image_b64,
+                mime_type=mime_type,
+                max_words=30,
+                max_tokens=512,
+            )
             send_telegram_message(chat_id, reply_text, reply_to_message_id=message_id)
             print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}) pakai {model_to_use}.", flush=True)
         except Exception as e:
@@ -389,7 +411,15 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
                     if alt_model == model_to_use:
                         continue
                     try:
-                        reply_text = ask_groq(prompt_text, sender_name, alt_model, image_b64=image_b64, mime_type=mime_type)
+                        reply_text = ask_groq(
+                            prompt_text,
+                            sender_name,
+                            alt_model,
+                            image_b64=image_b64,
+                            mime_type=mime_type,
+                            max_words=30,
+                            max_tokens=512,
+                        )
                         if has_photo:
                             state["vision_model"] = alt_model
                         else:
