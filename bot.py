@@ -207,7 +207,7 @@ def get_telegram_updates(offset: int | None) -> list:
     return data.get("result", [])
 
 
-def download_telegram_photo_base64(file_id: str) -> tuple[str, str]:
+def download_telegram_file_bytes(file_id: str) -> tuple[bytes, str]:
     info_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile"
     info_resp = requests.get(info_url, params={"file_id": file_id}, timeout=20)
     info_resp.raise_for_status()
@@ -223,13 +223,52 @@ def download_telegram_photo_base64(file_id: str) -> tuple[str, str]:
     lower_path = file_path.lower()
     if lower_path.endswith(".png"):
         mime_type = "image/png"
+        filename = "profile.png"
     elif lower_path.endswith(".webp"):
         mime_type = "image/webp"
+        filename = "profile.webp"
     else:
         mime_type = "image/jpeg"
+        filename = "profile.jpg"
 
-    b64_data = base64.b64encode(file_resp.content).decode("utf-8")
+    return file_resp.content, mime_type, filename
+
+
+def download_telegram_photo_base64(file_id: str) -> tuple[str, str]:
+    content, mime_type, _ = download_telegram_file_bytes(file_id)
+    b64_data = base64.b64encode(content).decode("utf-8")
     return b64_data, mime_type
+
+
+def fetch_user_profile_photo_bytes(user_id: int | None) -> tuple[bytes, str] | None:
+    """Mengambil foto profil terbaru user secara aman; mengembalikan None jika tidak ada atau gagal."""
+    if not user_id:
+        return None
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUserProfilePhotos"
+        resp = requests.get(url, params={"user_id": user_id, "limit": 1}, timeout=15)
+        if not resp.ok:
+            return None
+        data = resp.json()
+        if not data.get("ok"):
+            return None
+
+        photos_list = (data.get("result") or {}).get("photos") or []
+        if not photos_list or not photos_list[0]:
+            return None
+
+        best_size = photos_list[0][-1]
+        file_id = best_size.get("file_id")
+        if not file_id:
+            return None
+
+        content, _, filename = download_telegram_file_bytes(file_id)
+        if not content:
+            return None
+        return content, filename
+    except Exception as e:
+        print(f"Info: gagal ambil foto profil user {user_id} (diabaikan): {e}", file=sys.stderr, flush=True)
+        return None
 
 
 def clamp_words(text: str, max_words: int = 30) -> str:
@@ -326,6 +365,54 @@ def send_telegram_photo(chat_id: int, photo_url: str, caption: str, reply_to_mes
         raise RuntimeError(f"Telegram sendPhoto HTTP {resp.status_code}: {resp.text}")
 
 
+def send_telegram_photo_bytes(
+    chat_id: int,
+    photo_bytes: bytes,
+    filename: str = "profile.jpg",
+    caption: str = "",
+    reply_to_message_id: int | None = None,
+) -> None:
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    data = {"chat_id": str(chat_id)}
+    if caption:
+        data["caption"] = caption
+    if reply_to_message_id is not None:
+        data["reply_to_message_id"] = str(reply_to_message_id)
+
+    files = {"photo": (filename, photo_bytes)}
+    resp = requests.post(url, data=data, files=files, timeout=25)
+    if not resp.ok:
+        raise RuntimeError(f"Telegram sendPhoto bytes HTTP {resp.status_code}: {resp.text}")
+
+
+def build_welcome_message(sender_name: str, state: dict) -> str:
+    default_welcome = (
+        f"Selamat datang, {sender_name}! Jangan baper ya, bot ini agak gila dan nyinyir."
+    )
+    instruction = (
+        f"User bernama '{sender_name}' baru klik tombol Mulai (/start). "
+        "Beri ucapan selamat datang yang menyebut namanya, galak, sarkas, cerdas, lucu, "
+        "dan wajib ingatkan jangan baper karena bot ini agak gila. Maksimal 28 kata."
+    )
+    try:
+        msg = ask_groq(
+            "/start",
+            sender_name,
+            state["chat_model"],
+            extra_instruction=instruction,
+            max_words=28,
+            max_tokens=256,
+        )
+        lower_msg = msg.lower()
+        if "baper" not in lower_msg and "gila" not in lower_msg:
+            combined = f"{msg} Jangan baper, bot ini agak gila."
+            return clamp_words(combined, max_words=30)
+        return msg
+    except Exception as e:
+        print(f"Gagal bikin ucapan /start via Groq: {e}", file=sys.stderr, flush=True)
+        return clamp_words(default_welcome, max_words=30)
+
+
 def poll_once(current_offset: int | None, state: dict) -> int | None:
     updates = get_telegram_updates(current_offset)
     if not updates:
@@ -352,7 +439,34 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
         chat_id = message["chat"]["id"]
         message_id = message.get("message_id")
         from_user = message.get("from", {})
+        user_id = from_user.get("id")
         sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
+
+        # Alur khusus saat tombol Mulai (/start) ditekan
+        if not has_photo and text.strip().startswith("/start"):
+            welcome_text = build_welcome_message(sender_name, state)
+            profile_photo = fetch_user_profile_photo_bytes(user_id)
+
+            try:
+                send_telegram_message(chat_id, welcome_text, reply_to_message_id=message_id)
+            except Exception as e:
+                print(f"Gagal kirim pesan selamat datang ke {sender_name}: {e}", file=sys.stderr, flush=True)
+
+            # Kirim foto profil di bawah ucapan selamat datang (tidak membatalkan jika gagal)
+            if profile_photo:
+                photo_bytes, filename = profile_photo
+                try:
+                    send_telegram_photo_bytes(
+                        chat_id,
+                        photo_bytes,
+                        filename=filename,
+                        caption=f"Foto profil: {sender_name}",
+                    )
+                except Exception as e:
+                    print(f"Info: gagal kirim foto profil {sender_name} (diabaikan): {e}", file=sys.stderr, flush=True)
+
+            print(f"Menyambut {sender_name} (/start) dengan foto profil={'ada' if profile_photo else 'tidak ada/gagal'}.", flush=True)
+            continue
 
         # Cek jika user meminta aplikasi/link RDP
         if not has_photo and text.strip() and is_rdp_request(text):
@@ -410,11 +524,7 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
             prompt_text = text.strip() or "Lihat foto ini lalu beri tanggapan singkat."
         else:
             model_to_use = state["chat_model"]
-            prompt_text = (
-                "User baru menekan /start. Sambut singkat dengan galak, sarkas, cerdas, dan lucu."
-                if text.strip() == "/start"
-                else text.strip()
-            )
+            prompt_text = text.strip()
 
         try:
             reply_text = ask_groq(
