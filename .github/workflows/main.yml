@@ -1,8 +1,8 @@
-name: Run Telegram OpenRouter Bot
+name: Run Telegram OpenRouter Bot (6 Hours)
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "0 */6 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -11,6 +11,7 @@ permissions:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,14 +24,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run bot script
+      - name: Run bot script (6h loop)
         run: python bot.py
 
-      - name: Commit updated offset
+      - name: Commit updated offset after session
+        if: always()
         run: |
+          touch last_offset.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add last_offset.json || true
+          git add last_offset.json
           if ! git diff --staged --quiet; then
             git commit -m "chore: update last_offset.json"
             git push
