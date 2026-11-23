@@ -13,6 +13,7 @@ PREFERRED_GROQ_MODELS = [
     "qwen/qwen3-32b",
     "deepseek-r1-distill-llama-70b",
 ]
+EXCLUDED_MODEL_KEYWORDS = ("whisper", "orpheus", "tts", "guard", "safeguard", "prompt-guard")
 
 OFFSET_FILE = "last_offset.json"
 RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam = 21.600 detik
@@ -47,7 +48,27 @@ def save_last_offset(offset: int) -> None:
         json.dump({"offset": offset}, f)
 
 
-def resolve_groq_model() -> str:
+def is_chat_candidate(model_id: str) -> bool:
+    lower = model_id.lower()
+    return not any(kw in lower for kw in EXCLUDED_MODEL_KEYWORDS)
+
+
+def test_groq_chat_model(model_name: str) -> bool:
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": "balas ok"}],
+        "max_tokens": 5,
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=25)
+    return resp.ok
+
+
+def resolve_groq_model() -> tuple[str, list[str]]:
     url = "https://api.groq.com/openai/v1/models"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
@@ -62,17 +83,23 @@ def resolve_groq_model() -> str:
     if not available_ids:
         raise RuntimeError("Daftar model Groq kosong untuk API key ini.")
 
+    ordered_candidates: list[str] = []
     for candidate in PREFERRED_GROQ_MODELS:
-        if candidate in available_ids:
-            return candidate
+        if candidate in available_ids and is_chat_candidate(candidate) and candidate not in ordered_candidates:
+            ordered_candidates.append(candidate)
 
-    # Pilih model non-whisper/non-guard jika kandidat di atas tidak ada
     for model_id in available_ids:
-        lower = model_id.lower()
-        if "whisper" not in lower and "guard" not in lower and "safeguard" not in lower:
-            return model_id
+        if is_chat_candidate(model_id) and model_id not in ordered_candidates:
+            ordered_candidates.append(model_id)
 
-    return available_ids[0]
+    for model_id in ordered_candidates:
+        try:
+            if test_groq_chat_model(model_id):
+                return model_id, ordered_candidates
+        except Exception:
+            continue
+
+    raise RuntimeError(f"Tidak ada model chat Groq yang lolos uji coba. Kandidat: {ordered_candidates}")
 
 
 def get_telegram_updates(offset: int | None) -> list:
@@ -128,7 +155,7 @@ def send_telegram_message(chat_id: int, text: str, reply_to_message_id: int | No
     resp.raise_for_status()
 
 
-def poll_once(current_offset: int | None, model_name: str) -> int | None:
+def poll_once(current_offset: int | None, state: dict) -> int | None:
     updates = get_telegram_updates(current_offset)
     if not updates:
         return current_offset
@@ -160,19 +187,36 @@ def poll_once(current_offset: int | None, model_name: str) -> int | None:
         )
 
         try:
-            reply_text = ask_groq(prompt_text, sender_name, model_name)
+            reply_text = ask_groq(prompt_text, sender_name, state["model"])
             send_telegram_message(chat_id, reply_text, reply_to_message_id=message_id)
-            print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}) pakai {model_name}.", flush=True)
+            print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}) pakai {state['model']}.", flush=True)
         except Exception as e:
-            print(f"Gagal memproses update {update_id}: {e}", file=sys.stderr, flush=True)
-            try:
-                send_telegram_message(
-                    chat_id,
-                    "Tadi otak saya sempat nge-freeze gara-gara pertanyaanmu. Coba kirim ulang sebentar lagi!",
-                    reply_to_message_id=message_id,
-                )
-            except Exception:
-                pass
+            err_str = str(e)
+            switched = False
+            if "model_terms_required" in err_str or "model_not_found" in err_str:
+                for alt_model in state["candidates"]:
+                    if alt_model == state["model"]:
+                        continue
+                    try:
+                        reply_text = ask_groq(prompt_text, sender_name, alt_model)
+                        state["model"] = alt_model
+                        send_telegram_message(chat_id, reply_text, reply_to_message_id=message_id)
+                        print(f"Beralih ke model {alt_model} dan membalas {sender_name}.", flush=True)
+                        switched = True
+                        break
+                    except Exception:
+                        continue
+
+            if not switched:
+                print(f"Gagal memproses update {update_id}: {e}", file=sys.stderr, flush=True)
+                try:
+                    send_telegram_message(
+                        chat_id,
+                        "Tadi otak saya sempat nge-freeze gara-gara pertanyaanmu. Coba kirim ulang sebentar lagi!",
+                        reply_to_message_id=message_id,
+                    )
+                except Exception:
+                    pass
 
     if max_update_id is not None:
         new_offset = max_update_id + 1
@@ -187,7 +231,8 @@ def main() -> None:
         print("Error: TELEGRAM_TOKEN atau GROQ_API_KEY kosong.", file=sys.stderr)
         sys.exit(1)
 
-    active_model = resolve_groq_model()
+    active_model, candidates = resolve_groq_model()
+    state = {"model": active_model, "candidates": candidates}
     print(f"Model Groq aktif: {active_model}", flush=True)
 
     start_time = time.monotonic()
@@ -198,7 +243,7 @@ def main() -> None:
 
     while time.monotonic() < end_time:
         try:
-            current_offset = poll_once(current_offset, active_model)
+            current_offset = poll_once(current_offset, state)
         except Exception as e:
             print(f"Error saat polling: {e}", file=sys.stderr, flush=True)
 
