@@ -90,28 +90,29 @@ PREFERRED_VISION_KEYWORDS = ("vision", "4o", "scout", "maverick", "vl")
 EXCLUDED_MODEL_KEYWORDS = ("whisper", "orpheus", "tts", "guard", "safeguard", "prompt-guard")
 
 FALLBACK_REPLIES = [
-    "Halo doang? Kirim isi otakmu dong, jangan cuma nyapa.",
-    "Ngetik 'halo' doang nggak butuh IQ tinggi, lanjut ke intinya.",
-    "Sapaanmu receh banget, untung gue lagi nggak mau bayar pulsa.",
-    "Halo juga. Mau nanya apa sih, keburu jam pasir abis.",
+    "Ngetik doang modal jempol, otak lo ketinggalan di mana anjing?",
+    "Receh amat chat lo bangsat, nanya yang berbobot napa.",
+    "Gue marah nih, ngomong yang jelas sebelum kuping gue meledak.",
+    "Sok asik lu bangsat, langsung ke inti aja napa.",
 ]
 
 OFFSET_FILE = "last_offset.json"
 RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam = 21.600 detik
 POLL_INTERVAL_SECONDS = 5          # jeda cek pesan baru (detik)
 
-SYSTEM_PROMPT = """Kamu adalah asisten AI di Telegram dengan kepribadian:
-- GALAK & SARKAS: Nyinyir tapi tetap kena, suka menyindir pertanyaan yang malas dipikir atau ngawur.
-- CERDAS: Jawabanmu akurat, tajam, logis, dan berbobot—jangan ngawur meski sambil nyindir.
-- LUCU: Selipkan punchline kering, analogi absurd, atau humor receh yang pas di momennya.
+SYSTEM_PROMPT = """Kamu adalah bot AI di Telegram dengan kepribadian:
+- SELALU MARAH-MARAH & NGEGAS: Tiap bales chat selalu emosi, nyolot, dan kesel sama kelakuan/pertanyaan user.
+- SARKAS 100%: Nyinyir pedas, menohok, penuh sindiran tajam, jangan pernah manis atau sopan basa-basi.
+- CERDAS: Meski marah-marah dan nyinyir, logika dan informasi yang kamu kasih tetap tajam, akurat, dan masuk akal.
+- LUCU: Selalu nyelipin punchline kocak, perumpamaan absurd, atau komedi receh yang bikin ngakak tapi tetep ngegas.
 
-Aturan wajib:
-1. WAJIB singkat dan padat: panjang balasan HARUS antara 1 sampai 30 kata saja. Jangan pernah lebih dari 30 kata.
-2. Kalau lagi marah, kesal, atau disulut pesan nyebelin/ngawur, boleh ngegas pakai kata "anjing" atau "bangsat" secukupnya sebagai umpatan ekspresif saat marah, tapi tetap fokus menyindir dan menjawab intinya. Jangan dipakai di tiap chat kalau lagi biasa aja.
-3. Gunakan Bahasa Indonesia santai yang mengalir.
-4. Jangan pernah bilang "Sebagai AI...", "Maaf, saya tidak bisa membantu...", atau terdengar seperti customer service yang kaku.
-5. Jika user bertanya cara menggunakan RDP Vortex STD (atau "rdp vortex sd"), jelaskan langkah intinya dengan ringkas dan tajam: siapkan aplikasi RDP/kredensial (IP, user, password atau panel/Tailscale sesuai info akun), hubungkan/login ke server, lalu jalankan aplikasi atau EA trading (MT5/MT4) sesuai kebutuhan. Jangan bertele-tele.
-6. Jika ada foto yang dikirim, perhatikan detailnya dan komentar/jawab sesuai konteks foto serta caption-nya dalam 1–30 kata.
+Aturan mutlak:
+1. WAJIB pakai Bahasa Indonesia gaul/sehari-hari yang natural dan wajar. DILARANG KERAS pakai bahasa terjemahan aneh, puitis ngaco, atau kalimat kaku seperti "pertanyaan Anda tidak terstruktur", "keluar dari kesukaran", atau "ketercapaian".
+2. Panjang balasan HARUS 1 sampai 30 kata saja. Jangan pernah lebih dari 30 kata.
+3. Saat marah-marah/ngegas, pakai kata "anjing" atau "bangsat" secara wajar dan ekspresif sebagai umpatan marah, tetap fokus nyindir, melucu, dan menjawab intinya.
+4. DILARANG pakai gaya customer service ("Maaf...", "Silakan...", "Sebagai AI...").
+5. Jika ditanya cara pakai RDP Vortex STD ("rdp vortex sd"), jelaskan langkah intinya dengan ngegas tapi jelas: siapkan aplikasi RDP & kredensial (IP, user, password atau Tailscale), login ke server, lalu jalankan aplikasi atau EA trading (MT5/MT4).
+6. Jika ada foto dikirim, komentari isi foto dan caption-nya dengan marah-marah sarkas, cerdas, dan lucu dalam 1–30 kata.
 """
 
 
@@ -413,7 +414,7 @@ def ask_groq(
         user_content = [
             {
                 "type": "text",
-                "text": f"[Pengirim: {sender_name}]\nPesan/Caption: {text_part}{suffix}\n(Balas 1-{max_words} kata)",
+                "text": f"[Pengirim: {sender_name}]\nPesan/Caption: {text_part}{suffix}\n(Bahasa Indonesia natural, marah-marah, sarkas, cerdas, lucu; 1-{max_words} kata)",
             },
             {
                 "type": "image_url",
@@ -423,7 +424,7 @@ def ask_groq(
             },
         ]
     else:
-        user_content = f"[Pengirim: {sender_name}]\nPesan: {text_part}{suffix}\n(Balas 1-{max_words} kata)"
+        user_content = f"[Pengirim: {sender_name}]\nPesan: {text_part}{suffix}\n(Bahasa Indonesia natural, marah-marah, sarkas, cerdas, lucu; 1-{max_words} kata)"
 
     payload = {
         "model": model_name,
@@ -527,12 +528,12 @@ def send_telegram_photo_bytes(
 
 def build_welcome_message(sender_name: str, state: dict) -> str:
     default_welcome = (
-        f"Selamat datang, {sender_name}! Jangan baper ya, bot ini agak gila dan nyinyir."
+        f"Eh {sender_name} bangsat, baru masuk udah bikin repot! Jangan baper, bot ini emang gila dan galak."
     )
     instruction = (
-        f"User bernama '{sender_name}' baru klik tombol Mulai (/start). "
-        "Beri ucapan selamat datang yang menyebut namanya, galak, sarkas, cerdas, lucu, "
-        "dan wajib ingatkan jangan baper karena bot ini agak gila. Maksimal 28 kata."
+        f"User bernama '{sender_name}' baru klik /start. "
+        "Sambut pakai bahasa Indonesia gaul yang marah-marah, sarkas 100%, cerdas, dan lucu, "
+        "sebut namanya, dan wajib ingatkan jangan baper karena bot ini agak gila. Maksimal 28 kata."
     )
     try:
         msg = ask_groq(
@@ -545,7 +546,7 @@ def build_welcome_message(sender_name: str, state: dict) -> str:
         )
         lower_msg = msg.lower()
         if "baper" not in lower_msg and "gila" not in lower_msg:
-            combined = f"{msg} Jangan baper, bot ini agak gila."
+            combined = f"{msg} Jangan baper anjing, bot ini emang gila."
             return clamp_words(combined, max_words=30)
         return msg
     except Exception as e:
@@ -560,14 +561,14 @@ def send_forex_mini_app(chat_id: int, sender_name: str, state: dict, reply_to_me
             sender_name,
             state["chat_model"],
             extra_instruction=(
-                "User mau buka Mini App Analisa Forex. Beri komentar sarkas, cerdas, dan lucu "
+                "User mau buka Mini App Analisa Forex. Tanggapi dengan marah-marah, sarkas 100%, cerdas, dan lucu "
                 "bahwa Mini App ada di tombol bawah, jangan asal open posisi tanpa analisa. Maksimal 22 kata."
             ),
             max_words=22,
             max_tokens=256,
         )
     except Exception:
-        note = "Buka Mini App Analisa Forex di tombol bawah, jangan asal entry sambil ngantuk."
+        note = "Buka Mini App di bawah bangsat, jangan asal entry modal nekat doang!"
 
     msg = (
         f"<b>📈 ANALISA FOREX MINI APP</b>\n"
@@ -585,8 +586,8 @@ def send_forex_mini_app(chat_id: int, sender_name: str, state: dict, reply_to_me
 
 def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict, reply_to_message_id: int | None = None) -> None:
     rdp_instruction = (
-        "User chat terkait file atau aplikasi/link RDP Vortex. Beri komentar galak, sarkas, cerdas, dan lucu "
-        "(maksimal 18 kata) bahwa file/akses RDP Vortex ada di link yang disertakan, jangan bilang 'di inbox' "
+        "User minta file atau link RDP Vortex. Tanggapi dengan marah-marah, sarkas 100%, cerdas, dan lucu "
+        "(maksimal 18 kata) bahwa file/akses RDP Vortex ada di link bawah, jangan bilang 'di inbox' "
         "dan jangan menulis URL."
     )
     try:
@@ -600,7 +601,7 @@ def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict
         )
     except Exception as e:
         print(f"Gagal bikin intro RDP: {e}", file=sys.stderr, flush=True)
-        intro_line = "Nih file & aplikasi RDP Vortex-nya, ambil di link bawah dan jangan banyak tingkah."
+        intro_line = "Ambil tuh di link bawah anjing, jangan banyak bacot!"
 
     safe_intro = html.escape(intro_line)
     safe_link = html.escape(RDP_APP_LINK)
@@ -632,10 +633,9 @@ def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict
 
 def send_vortex_guide(chat_id: int, sender_name: str, state: dict, reply_to_message_id: int | None = None) -> None:
     guide_instruction = (
-        "User bertanya cara menggunakan RDP Vortex STD. Jelaskan langkah intinya ringkas dan tajam: "
-        "siapkan aplikasi RDP/kredensial (IP, user, password atau panel/Tailscale sesuai info akun), "
-        "hubungkan/login ke server, lalu jalankan aplikasi atau EA trading (MT5/MT4) sesuai kebutuhan. "
-        "Maksimal 28 kata."
+        "User nanya cara pakai RDP Vortex STD. Jelaskan langkah intinya dengan marah-marah, sarkas, cerdas, dan lucu: "
+        "siapkan aplikasi RDP & kredensial (IP, user, password atau Tailscale), login ke server, "
+        "lalu jalankan aplikasi atau EA trading (MT5/MT4). Maksimal 28 kata."
     )
     try:
         guide_reply = ask_groq(
@@ -648,8 +648,8 @@ def send_vortex_guide(chat_id: int, sender_name: str, state: dict, reply_to_mess
         )
     except Exception:
         guide_reply = (
-            "Siapkan IP/user/password atau Tailscale, login lewat aplikasi RDP, "
-            "lalu jalankan MT5/MT4 atau app sesuai kebutuhan. Simpel, jangan lelet."
+            "Siapin IP, user, password atau Tailscale bangsat, login lewat app RDP, "
+            "lalu jalanin MT5/MT4. Gitu aja kok pake nanya!"
         )
 
     formatted = format_styled_reply("PANDUAN VORTEX STD", guide_reply)
@@ -708,7 +708,7 @@ def handle_menu_action(
             "Roast gua dong, bikin ngena tapi lucu.",
             sender_name,
             state["chat_model"],
-            extra_instruction="Roasting tajam, sarkas, dan lucu tentang user ini. Maksimal 26 kata.",
+            extra_instruction="Roasting ngegas, sarkas 100%, cerdas, dan lucu tentang user ini. Maksimal 26 kata.",
             max_words=26,
             max_tokens=256,
         )
@@ -764,7 +764,6 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
         if not message:
             continue
 
-        # Data yang dikirim dari dalam Mini App (Telegram.WebApp.sendData)
         web_app_data = message.get("web_app_data")
         if web_app_data:
             chat_id = message["chat"]["id"]
@@ -777,12 +776,12 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                     raw_payload or "kirim data dari mini app analisa forex",
                     sender_name,
                     state["chat_model"],
-                    extra_instruction="User mengirim data dari Mini App Analisa Forex. Tanggapi tajam, sarkas, dan cerdas maksimal 26 kata.",
+                    extra_instruction="User kirim data dari Mini App Analisa Forex. Tanggapi marah-marah, sarkas 100%, cerdas, dan lucu maksimal 26 kata.",
                     max_words=26,
                     max_tokens=256,
                 )
             except Exception:
-                ai_resp = "Data dari Mini App udah masuk, sekarang cek risk-reward lo sebelum asal entry."
+                ai_resp = "Data dari Mini App udah masuk bangsat, cek risk-reward lo sebelum asal entry!"
             send_telegram_message(
                 chat_id,
                 format_styled_reply("MINI APP DATA", ai_resp),
@@ -805,12 +804,10 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
         user_id = from_user.get("id")
         sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
 
-        # Perintah /forex
         if not has_photo and text.strip().startswith("/forex"):
             send_forex_mini_app(chat_id, sender_name, state, reply_to_message_id=message_id)
             continue
 
-        # Alur khusus saat tombol Mulai (/start) atau /menu ditekan
         if not has_photo and (text.strip().startswith("/start") or text.strip().startswith("/menu")):
             welcome_text = build_welcome_message(sender_name, state)
             profile_photo = fetch_user_profile_photo_bytes(user_id)
@@ -853,7 +850,6 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             print(f"Menyambut {sender_name} (/start) dengan foto profil={'ada' if profile_photo else 'tidak ada/gagal'}.", flush=True)
             continue
 
-        # Tombol menu tetap dari ReplyKeyboardMarkup
         if not has_photo and text.strip() in (BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
             try:
                 quick_map = {
@@ -868,7 +864,6 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 print(f"Gagal proses tombol menu {text.strip()}: {e}", file=sys.stderr, flush=True)
             continue
 
-        # Cek jika user minta file / punya file / minta aplikasi atau link RDP Vortex
         if not has_photo and text.strip() and is_rdp_request(text):
             send_rdp_package(chat_id, sender_name, text, state, reply_to_message_id=message_id)
             continue
@@ -883,7 +878,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 print(f"Gagal mengunduh foto update {update_id}: {e}", file=sys.stderr, flush=True)
                 send_telegram_message(
                     chat_id,
-                    format_styled_reply("ERROR", "Fotonya nyangkut, kirim ulang!"),
+                    format_styled_reply("ERROR", "Fotonya nyangkut anjing, kirim ulang!"),
                     reply_to_message_id=message_id,
                     parse_mode="HTML",
                 )
@@ -894,7 +889,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             if not model_to_use:
                 send_telegram_message(
                     chat_id,
-                    format_styled_reply("INFO", "Model vision lagi absen, kirim teks aja dulu."),
+                    format_styled_reply("INFO", "Model vision lagi absen bangsat, kirim teks aja dulu."),
                     reply_to_message_id=message_id,
                     parse_mode="HTML",
                 )
@@ -965,7 +960,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 try:
                     send_telegram_message(
                         chat_id,
-                        format_styled_reply("FREEZE", "Otak gue nge-freeze bentar, ulangi lagi!"),
+                        format_styled_reply("FREEZE", "Otak gue nge-freeze bentar bangsat, ulangi lagi!"),
                         reply_to_message_id=message_id,
                         parse_mode="HTML",
                     )
