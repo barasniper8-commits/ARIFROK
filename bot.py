@@ -992,16 +992,6 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 except Exception as e:
                     print(f"Gagal kirim pesan selamat datang ke {sender_name}: {e}", file=sys.stderr, flush=True)
 
-            try:
-                send_telegram_message(
-                    chat_id,
-                    "<b>🎛 Menu Cepat Aktif</b>",
-                    parse_mode="HTML",
-                    reply_markup=get_main_reply_keyboard(),
-                )
-            except Exception as e:
-                print(f"Info: gagal aktifkan reply keyboard untuk {sender_name}: {e}", file=sys.stderr, flush=True)
-
             print(f"Menyambut {sender_name} (/start) menyatu={'ya' if sent_combined_photo else 'tidak'}.", flush=True)
             continue
 
