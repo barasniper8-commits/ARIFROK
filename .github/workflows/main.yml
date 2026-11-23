@@ -24,10 +24,6 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run bot script
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openai/gpt-4o-mini' }}
         run: python bot.py
 
       - name: Commit updated offset
