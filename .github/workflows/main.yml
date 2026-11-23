@@ -1,48 +1,41 @@
-name: Windows RDP Viera
+name: Run Telegram OpenRouter Bot
 
 on:
-  workflow_dispatch:
-    inputs:
-      tailscale_key:
-        description: 'Masukkan Tailscale Auth Key (tskey-auth-...)'
-        required: true
-        type: string
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 jobs:
-  windows-rdp:
-    runs-on: windows-latest
+  run-bot:
+    runs-on: ubuntu-latest
     steps:
-      - name: Info Pemilik VPS (Viera)
-        run: |
-          Write-Host "=========================================="
-          Write-Host "  VPS RDP MILIK: Viera"
-          Write-Host "  LOKASI:Indonesia"
-          Write-Host "=========================================="
-          Write-Host "=== SPESIFIKASI MESIN (RAM 16GB) ==="
-          Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory
-          Get-CimInstance Win32_Processor | Select-Object Name
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Install & Setup Tailscale via Winget
-        run: |
-          Write-Host "Menginstal Tailscale menggunakan Winget..."
-          winget install --id Tailscale.Tailscale -e --accept-source-agreements --accept-package-agreements
-          
-          Write-Host "Menghubungkan ke Tailscale..."
-          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey="${{ inputs.tailscale_key }}" --accept-routes
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-      - name: Konfigurasi RDP & Password
-        run: |
-          net user runneradmin "Viera123!@"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -value 1
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - name: Tampilkan IP Tailscale
-        run: |
-          Write-Host "=== GUNAKAN IP DI BAWAH INI UNTUK LOGIN RDP (Viera) ==="
-          & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+      - name: Run bot script
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openai/gpt-4o-mini' }}
+        run: python bot.py
 
-      - name: Keep Alive (Sesi Aktif 6 Jam)
+      - name: Commit updated offset
         run: |
-          Write-Host "RDP Viera Siap Digunakan. Cek log 'Tampilkan IP Tailscale' untuk melihat IP."
-          while ($true) { Start-Sleep -Seconds 300 }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add last_offset.json || true
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: update last_offset.json"
+            git push
+          fi
