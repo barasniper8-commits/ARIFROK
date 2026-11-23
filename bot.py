@@ -15,6 +15,7 @@ RDP_APP_LINK = "https://sfile.co/FX05ITaeqgj"
 RDP_KEYWORDS = (
     "aplikasi rdp",
     "apk rdp",
+    "file rdp",
     "minta rdp",
     "mau rdp",
     "kirim rdp",
@@ -27,10 +28,23 @@ RDP_KEYWORDS = (
     "rdpnya",
     "aplikasi vps",
     "apk vps",
+    "file vps",
     "minta vps",
     "mau vps",
     "kirim vps",
     "link vps",
+    "punya file",
+    "ada file",
+    "minta file",
+    "mau file",
+    "kirim file",
+    "kasih file",
+    "share file",
+    "link file",
+    "download file",
+    "file nya",
+    "filenya",
+    "vortex",
 )
 
 RDP_ACTION_TOKENS = {
@@ -45,6 +59,9 @@ RDP_ACTION_TOKENS = {
     "unduh",
     "apk",
     "aplikasi",
+    "file",
+    "punya",
+    "ada",
     "mana",
     "bagi",
 }
@@ -106,7 +123,7 @@ def is_rdp_request(text: str) -> bool:
     if any(kw in lower for kw in RDP_KEYWORDS):
         return True
     tokens = set(lower.replace("?", " ").replace("!", " ").replace(",", " ").replace(".", " ").split())
-    if ("rdp" in tokens or "vps" in tokens) and (tokens & RDP_ACTION_TOKENS):
+    if ("rdp" in tokens or "vps" in tokens or "file" in tokens) and (tokens & RDP_ACTION_TOKENS):
         return True
     return False
 
@@ -207,7 +224,7 @@ def get_telegram_updates(offset: int | None) -> list:
     return data.get("result", [])
 
 
-def download_telegram_file_bytes(file_id: str) -> tuple[bytes, str]:
+def download_telegram_file_bytes(file_id: str) -> tuple[bytes, str, str]:
     info_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile"
     info_resp = requests.get(info_url, params={"file_id": file_id}, timeout=20)
     info_resp.raise_for_status()
@@ -452,7 +469,6 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
             except Exception as e:
                 print(f"Gagal kirim pesan selamat datang ke {sender_name}: {e}", file=sys.stderr, flush=True)
 
-            # Kirim foto profil di bawah ucapan selamat datang (tidak membatalkan jika gagal)
             if profile_photo:
                 photo_bytes, filename = profile_photo
                 try:
@@ -468,11 +484,11 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
             print(f"Menyambut {sender_name} (/start) dengan foto profil={'ada' if profile_photo else 'tidak ada/gagal'}.", flush=True)
             continue
 
-        # Cek jika user meminta aplikasi/link RDP
+        # Cek jika user minta file / punya file / minta aplikasi atau link RDP Vortex
         if not has_photo and text.strip() and is_rdp_request(text):
             rdp_instruction = (
-                "User meminta aplikasi/link RDP Vortex STD. Beri komentar galak, sarkas, cerdas, dan lucu "
-                "(maksimal 18 kata) bahwa file/aksesnya ada di link yang disertakan, jangan bilang 'di inbox' "
+                "User chat terkait file atau aplikasi/link RDP Vortex. Beri komentar galak, sarkas, cerdas, dan lucu "
+                "(maksimal 18 kata) bahwa file/akses RDP Vortex ada di link yang disertakan, jangan bilang 'di inbox' "
                 "dan jangan menulis URL."
             )
             try:
@@ -486,12 +502,12 @@ def poll_once(current_offset: int | None, state: dict) -> int | None:
                 )
             except Exception as e:
                 print(f"Gagal bikin intro RDP: {e}", file=sys.stderr, flush=True)
-                intro_line = "Nih aplikasi RDP Vortex STD-nya, ambil di link bawah dan jangan banyak tingkah."
+                intro_line = "Nih file & aplikasi RDP Vortex-nya, ambil di link bawah dan jangan banyak tingkah."
 
             final_caption = f"{intro_line}\nLink: {RDP_APP_LINK}"
             try:
                 send_telegram_photo(chat_id, RDP_PHOTO_URL, final_caption, reply_to_message_id=message_id)
-                print(f"Mengirim foto & link RDP ke {sender_name} (chat_id={chat_id}).", flush=True)
+                print(f"Mengirim foto & link RDP Vortex ke {sender_name} (chat_id={chat_id}).", flush=True)
             except Exception as e:
                 print(f"Gagal kirim foto RDP: {e}", file=sys.stderr, flush=True)
                 send_telegram_message(chat_id, final_caption, reply_to_message_id=message_id)
