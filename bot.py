@@ -5,8 +5,8 @@ import time
 import requests
 
 # Ganti nilai di bawah ini dengan token dan API key milikmu sendiri
-TELEGRAM_TOKEN = "ISI_TOKEN_TELEGRAM_KAMU_DI_SINI"
-OPENROUTER_API_KEY = "ISI_OPENROUTER_API_KEY_KAMU_DI_SINI"
+TELEGRAM_TOKEN = "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"
+OPENROUTER_API_KEY = "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"
 OPENROUTER_MODEL = "openai/gpt-4o-mini"
 
 OFFSET_FILE = "last_offset.json"
