@@ -24,8 +24,8 @@ BOT_INSTANCES = [
     },
     {
         "name": "Bot-2",
-        "telegram_token": os.getenv("TELEGRAM_TOKEN_2", ""),
-        "groq_api_key": os.getenv("GROQ_API_KEY_2", ""),
+        "telegram_token": os.getenv("TELEGRAM_TOKEN_2", "9042103827:AAHRljMm11tXucZUgkks4RiuHcJj99VZkss"),
+        "groq_api_key": os.getenv("GROQ_API_KEY_2", "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"),
     },
 ]
 
