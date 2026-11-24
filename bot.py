@@ -35,7 +35,7 @@ RDP_PHOTO_URL = (
     "s1600/1000196027.png"
 )
 RDP_APP_LINK = "https://sfile.co/FX05ITaeqgj"
-START_MINI_APP_URL = "https://arianto12.lynk.id/p/ganjeng"
+START_MINI_APP_URL = "https://arianto12.lynk.id/p/autkey"
 FOREX_MINI_APP_URL = "https://arianto12.lynk.id/p/analisa-forex"
 
 BOT_DESCRIPTION = (
