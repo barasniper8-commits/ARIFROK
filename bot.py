@@ -1,10 +1,10 @@
 import base64
+import hashlib
 import html
 import json
 import os
 import random
 import re
-import shutil
 import sys
 import time
 import requests
@@ -148,8 +148,9 @@ FALLBACK_ANGRY_REPLIES = [
     "Kelakuan lo bikin naik darah, anjing. Pahami dulu maksudnya sebelum nanya, bangsat!",
 ]
 
-OFFSET_FILE = "last_offset.json"
-RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam (sesuai kode awal)
+TOKEN_HASH = hashlib.sha256(TELEGRAM_TOKEN.encode("utf-8")).hexdigest()[:8]
+OFFSET_FILE = f"last_offset_{TOKEN_HASH}.json"
+RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam = 21.600 detik
 POLL_INTERVAL_SECONDS = 5          # jeda cek pesan baru (detik)
 
 SYSTEM_PROMPT = """Kamu adalah asisten AI bot Telegram berbahasa Indonesia gaul-natural yang MARAH-MARAH, SARKAS, MENGGURUI, CERDAS, dan LUCU.
@@ -172,117 +173,6 @@ Aturan khusus:
 - Jika ditanya cara pakai RDP Vortex STD ("rdp vortex sd"): gurui dengan ringkas: siapkan aplikasi RDP & kredensial (IP, user, password atau Tailscale), login ke server, lalu jalankan MT5/MT4 atau aplikasi sesuai kebutuhan.
 - Jika ada foto: komentari detail foto dan caption-nya dengan sarkas menggurui dan lucu dalam 1–30 kata.
 """
-
-
-def get_battery_status() -> str:
-    """Membaca status baterai jika tersedia di OS/sysfs, atau mengembalikan info host/server."""
-    # Coba modul psutil jika terpasang
-    try:
-        import psutil  # type: ignore
-
-        batt = psutil.sensors_battery()
-        if batt is not None:
-            pct = round(batt.percent)
-            plug = "Mengisi daya" if batt.power_plugged else "Baterai"
-            return f"{pct}% ({plug})"
-    except Exception:
-        pass
-
-    # Coba Linux /sys/class/power_supply
-    power_root = "/sys/class/power_supply"
-    if os.path.isdir(power_root):
-        try:
-            for entry in sorted(os.listdir(power_root)):
-                cap_path = os.path.join(power_root, entry, "capacity")
-                status_path = os.path.join(power_root, entry, "status")
-                if os.path.isfile(cap_path):
-                    with open(cap_path, "r", encoding="utf-8") as f:
-                        pct = f.read().strip()
-                    status = ""
-                    if os.path.isfile(status_path):
-                        with open(status_path, "r", encoding="utf-8") as f:
-                            status = f.read().strip()
-                    return f"{pct}% ({status})" if status else f"{pct}%"
-        except Exception:
-            pass
-
-    # Fallback jika berjalan di server / container tanpa sensor baterai
-    env_batt = os.getenv("BATTERY_STATUS")
-    if env_batt:
-        return env_batt
-    return "AC / Cloud Host"
-
-
-def _format_bytes(num_bytes: int) -> str:
-    units = ["B", "KB", "MB", "GB", "TB"]
-    val = float(max(0, num_bytes))
-    idx = 0
-    while val >= 1024 and idx < len(units) - 1:
-        val /= 1024.0
-        idx += 1
-    return f"{val:.1f} {units[idx]}"
-
-
-def get_ram_status() -> str:
-    """Membaca penggunaan RAM sistem secara dinamis."""
-    try:
-        import psutil  # type: ignore
-
-        vm = psutil.virtual_memory()
-        return f"{_format_bytes(vm.used)} / {_format_bytes(vm.total)} ({vm.percent:.0f}%)"
-    except Exception:
-        pass
-
-    meminfo_path = "/proc/meminfo"
-    if os.path.isfile(meminfo_path):
-        try:
-            info: dict[str, int] = {}
-            with open(meminfo_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    parts = line.split(":")
-                    if len(parts) == 2:
-                        key = parts[0].strip()
-                        val_kb = int(parts[1].strip().split()[0])
-                        info[key] = val_kb * 1024
-            total = info.get("MemTotal", 0)
-            avail = info.get("MemAvailable", info.get("MemFree", 0))
-            if total > 0:
-                used = max(0, total - avail)
-                pct = (used / total) * 100.0
-                return f"{_format_bytes(used)} / {_format_bytes(total)} ({pct:.0f}%)"
-        except Exception:
-            pass
-
-    return "Tidak terdeteksi"
-
-
-def get_internal_storage_status() -> str:
-    """Membaca kapasitas penyimpanan internal (disk utama)."""
-    try:
-        usage = shutil.disk_usage("/")
-        used = usage.used
-        total = usage.total
-        pct = (used / total * 100.0) if total > 0 else 0.0
-        return f"{_format_bytes(used)} / {_format_bytes(total)} ({pct:.0f}%)"
-    except Exception:
-        return "Tidak terdeteksi"
-
-
-def format_remaining_time(remaining_sec: int) -> str:
-    """
-    Memformat sisa waktu. Jika <= 3660 detik (60 menit 60 detik), tampilkan dalam format
-    '60 menit 60 detik' (menit bisa 0..60 dan detik 0..60 saat tepat di batas, atau standar mm:ss).
-    Jika lebih dari itu, tampilkan jam, menit, detik.
-    """
-    sec = max(0, int(remaining_sec))
-    if sec == 3660:
-        return "60 menit 60 detik"
-    if sec <= 3600:
-        mins, rem = divmod(sec, 60)
-        return f"{mins} menit {rem} detik"
-    hours, rem = divmod(sec, 3600)
-    mins, secs = divmod(rem, 60)
-    return f"{hours} jam {mins} menit {secs} detik"
 
 
 def is_angry_trigger(text: str) -> bool:
@@ -313,6 +203,22 @@ def ensure_angry_profanity(text: str) -> str:
         parts.insert(1, f"{word},")
         return " ".join(parts)
     return f"{text}, {word}!"
+
+
+def fetch_bot_identity() -> dict:
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getMe"
+        resp = requests.get(url, timeout=15)
+        if resp.ok and resp.json().get("ok"):
+            res = resp.json().get("result") or {}
+            return {
+                "id": res.get("id"),
+                "username": (res.get("username") or "").lower(),
+                "first_name": (res.get("first_name") or "").lower(),
+            }
+    except Exception as e:
+        print(f"Info: gagal getMe (diabaikan): {e}", file=sys.stderr, flush=True)
+    return {"id": None, "username": "", "first_name": ""}
 
 
 def register_bot_description() -> None:
@@ -354,7 +260,7 @@ def register_bot_commands() -> None:
             {"command": "menu", "description": "Tampilkan menu & mini app"},
             {"command": "forex", "description": "Buka info Mini App Analisa Forex"},
             {"command": "rdp", "description": "Ambil link & info RDP Vortex"},
-            {"command": "status", "description": "Cek status bot & perangkat"},
+            {"command": "status", "description": "Cek model & sisa waktu sesi"},
         ]
         requests.post(url, json={"commands": commands}, timeout=15)
     except Exception as e:
@@ -437,6 +343,49 @@ def is_rdp_request(text: str) -> bool:
     tokens = set(lower.replace("?", " ").replace("!", " ").replace(",", " ").replace(".", " ").split())
     if ("rdp" in tokens or "vps" in tokens or "file" in tokens) and (tokens & RDP_ACTION_TOKENS):
         return True
+    return False
+
+
+def strip_bot_mention(text: str, bot_username: str) -> str:
+    if not bot_username:
+        return text.strip()
+    return re.sub(rf"@{re.escape(bot_username)}\b", "", text, flags=re.IGNORECASE).strip()
+
+
+def should_respond_in_group(message: dict, text: str, has_photo: bool, state: dict) -> bool:
+    chat_type = (message.get("chat") or {}).get("type", "private")
+    if chat_type == "private":
+        return True
+
+    stripped = text.strip()
+    bot_id = state.get("bot_id")
+    bot_username = (state.get("bot_username") or "").lower()
+    bot_first_name = (state.get("bot_first_name") or "").lower()
+
+    if stripped.startswith("/"):
+        if not bot_username:
+            return True
+        cmd_token = stripped.split()[0].lower()
+        if "@" not in cmd_token or cmd_token.endswith(f"@{bot_username}"):
+            return True
+
+    if bot_username and f"@{bot_username}" in stripped.lower():
+        return True
+
+    reply_to = message.get("reply_to_message") or {}
+    reply_from = reply_to.get("from") or {}
+    if bot_id and reply_from.get("id") == bot_id:
+        return True
+
+    if stripped in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
+        return True
+
+    if stripped and is_rdp_request(stripped):
+        return True
+
+    if bot_first_name and len(bot_first_name) >= 3 and re.search(rf"\b{re.escape(bot_first_name)}\b", stripped.lower()):
+        return True
+
     return False
 
 
@@ -788,12 +737,13 @@ def send_telegram_photo_bytes(
         raise RuntimeError(f"Telegram sendPhoto bytes HTTP {resp.status_code}: {resp.text}")
 
 
-def build_welcome_message(sender_name: str, state: dict) -> str:
+def build_welcome_message(sender_name: str, state: dict, is_group: bool = False) -> str:
     default_welcome = (
         f"Halo {sender_name}, jangan baper; kalau mau nanya pakai logika biar nggak kelihatan amatir."
     )
+    scope_note = "di grup ini" if is_group else "di chat ini"
     instruction = (
-        f"Sapa user '{sender_name}' yang baru klik /start dengan gaya menggurui, sarkas halus, dan lucu. "
+        f"Sapa user '{sender_name}' yang baru mulai {scope_note} dengan gaya menggurui, sarkas halus, dan lucu. "
         "Ingatkan jangan baper dan biasakan nanya yang jelas. Maksimal 26 kata."
     )
     try:
@@ -892,7 +842,13 @@ def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict
         )
 
 
-def send_vortex_guide(chat_id: int, sender_name: str, state: dict, reply_to_message_id: int | None = None) -> None:
+def send_vortex_guide(
+    chat_id: int,
+    sender_name: str,
+    state: dict,
+    reply_to_message_id: int | None = None,
+    is_group: bool = False,
+) -> None:
     guide_instruction = (
         "Gurui user dengan sarkas dan lucu sambil jelaskan cara pakai RDP Vortex STD: "
         "siapkan aplikasi RDP & kredensial (IP, user, password atau Tailscale), login ke server, "
@@ -920,33 +876,30 @@ def send_vortex_guide(chat_id: int, sender_name: str, state: dict, reply_to_mess
         formatted,
         reply_to_message_id=reply_to_message_id,
         parse_mode="HTML",
-        reply_markup=get_main_reply_keyboard(),
+        reply_markup=None if is_group else get_main_reply_keyboard(),
     )
 
 
 def send_bot_status(
     chat_id: int,
-    sender_name: str,
+    state: dict,
     end_time: float,
     reply_to_message_id: int | None = None,
+    is_group: bool = False,
 ) -> None:
     remaining_sec = max(0, int(end_time - time.monotonic()))
-    sisa_waktu_str = format_remaining_time(remaining_sec)
+    mins, secs = divmod(remaining_sec, 60)
+    hours, mins = divmod(mins, 60)
 
-    user_label = html.escape(sender_name or "Manusia")
-    sisa_label = html.escape(sisa_waktu_str)
-    battery_label = html.escape(get_battery_status())
-    ram_label = html.escape(get_ram_status())
-    internal_label = html.escape(get_internal_storage_status())
+    chat_m = html.escape(str(state.get("chat_model") or "-"))
+    vis_m = html.escape(str(state.get("vision_model") or "Tidak tersedia"))
 
     status_msg = (
         f"<b>📊 BOT STATUS</b>\n"
         f"<blockquote>"
-        f"• <b>Pengguna:</b> <code>{user_label}</code>\n"
-        f"• <b>Sisa Waktu:</b> <code>{sisa_label}</code>\n"
-        f"• <b>Baterai Daya:</b> <code>{battery_label}</code>\n"
-        f"• <b>RAM:</b> <code>{ram_label}</code>\n"
-        f"• <b>Internal:</b> <code>{internal_label}</code>"
+        f"• <b>Chat Model:</b> <code>{chat_m}</code>\n"
+        f"• <b>Vision Model:</b> <code>{vis_m}</code>\n"
+        f"• <b>Sisa Waktu Sesi:</b> <code>{hours}j {mins}m {secs}d</code>"
         f"</blockquote>"
     )
     send_telegram_message(
@@ -954,7 +907,7 @@ def send_bot_status(
         status_msg,
         reply_to_message_id=reply_to_message_id,
         parse_mode="HTML",
-        reply_markup=get_main_reply_keyboard(),
+        reply_markup=None if is_group else get_main_reply_keyboard(),
     )
 
 
@@ -965,15 +918,16 @@ def handle_menu_action(
     state: dict,
     end_time: float,
     reply_to_message_id: int | None = None,
+    is_group: bool = False,
 ) -> None:
     if action_key == "forex":
         send_forex_mini_app(chat_id, sender_name, state, reply_to_message_id=reply_to_message_id)
     elif action_key == "rdp":
         send_rdp_package(chat_id, sender_name, "minta rdp vortex", state, reply_to_message_id=reply_to_message_id)
     elif action_key == "guide":
-        send_vortex_guide(chat_id, sender_name, state, reply_to_message_id=reply_to_message_id)
+        send_vortex_guide(chat_id, sender_name, state, reply_to_message_id=reply_to_message_id, is_group=is_group)
     elif action_key == "status":
-        send_bot_status(chat_id, sender_name, end_time, reply_to_message_id=reply_to_message_id)
+        send_bot_status(chat_id, state, end_time, reply_to_message_id=reply_to_message_id, is_group=is_group)
     elif action_key == "roast":
         roast_reply, _ = ask_groq(
             "Roast gua dong dengan menggurui, sarkas, dan lucu.",
@@ -989,7 +943,7 @@ def handle_menu_action(
             format_styled_reply("ROASTING MODE", roast_reply),
             reply_to_message_id=reply_to_message_id,
             parse_mode="HTML",
-            reply_markup=get_main_reply_keyboard(),
+            reply_markup=None if is_group else get_main_reply_keyboard(),
         )
 
 
@@ -1010,7 +964,9 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             cb_id = callback.get("id")
             cb_data = (callback.get("data") or "").strip()
             cb_msg = callback.get("message") or {}
-            cb_chat_id = (cb_msg.get("chat") or {}).get("id")
+            cb_chat = cb_msg.get("chat") or {}
+            cb_chat_id = cb_chat.get("id")
+            cb_is_group = cb_chat.get("type") in ("group", "supergroup")
             cb_user = callback.get("from") or {}
             cb_sender = cb_user.get("first_name") or cb_user.get("username") or "Manusia"
 
@@ -1027,7 +983,14 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 }
                 if cb_data in action_map:
                     try:
-                        handle_menu_action(action_map[cb_data], cb_chat_id, cb_sender, state, end_time)
+                        handle_menu_action(
+                            action_map[cb_data],
+                            cb_chat_id,
+                            cb_sender,
+                            state,
+                            end_time,
+                            is_group=cb_is_group,
+                        )
                     except Exception as e:
                         print(f"Gagal proses callback {cb_data}: {e}", file=sys.stderr, flush=True)
             continue
@@ -1036,9 +999,14 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
         if not message:
             continue
 
+        chat_info = message.get("chat") or {}
+        chat_id = chat_info.get("id")
+        if not chat_id:
+            continue
+        is_group = chat_info.get("type") in ("group", "supergroup")
+
         web_app_data = message.get("web_app_data")
         if web_app_data:
-            chat_id = message["chat"]["id"]
             message_id = message.get("message_id")
             from_user = message.get("from", {})
             sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
@@ -1060,7 +1028,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 format_styled_reply("MINI APP DATA", ai_resp),
                 reply_to_message_id=message_id,
                 parse_mode="HTML",
-                reply_markup=get_main_reply_keyboard(),
+                reply_markup=None if is_group else get_main_reply_keyboard(),
             )
             continue
 
@@ -1071,22 +1039,21 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
         if not text.strip() and not has_photo:
             continue
 
-        chat_id = message["chat"]["id"]
+        if is_group and not should_respond_in_group(message, text, has_photo, state):
+            continue
+
+        cleaned_text = strip_bot_mention(text, state.get("bot_username") or "")
         message_id = message.get("message_id")
         from_user = message.get("from", {})
         user_id = from_user.get("id")
         sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
 
-        if not has_photo and text.strip().startswith("/forex"):
+        if not has_photo and cleaned_text.startswith("/forex"):
             send_forex_mini_app(chat_id, sender_name, state, reply_to_message_id=message_id)
             continue
 
-        if not has_photo and text.strip().startswith("/status"):
-            send_bot_status(chat_id, sender_name, end_time, reply_to_message_id=message_id)
-            continue
-
-        if not has_photo and (text.strip().startswith("/start") or text.strip().startswith("/menu")):
-            welcome_text = build_welcome_message(sender_name, state)
+        if not has_photo and (cleaned_text.startswith("/start") or cleaned_text.startswith("/menu")):
+            welcome_text = build_welcome_message(sender_name, state, is_group=is_group)
             profile_photo = fetch_user_profile_photo_bytes(user_id)
 
             styled_welcome = (
@@ -1124,10 +1091,10 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 except Exception as e:
                     print(f"Gagal kirim pesan selamat datang ke {sender_name}: {e}", file=sys.stderr, flush=True)
 
-            print(f"Menyambut {sender_name} (/start) menyatu={'ya' if sent_combined_photo else 'tidak'}.", flush=True)
+            print(f"Menyambut {sender_name} (/start) [group={is_group}] menyatu={'ya' if sent_combined_photo else 'tidak'}.", flush=True)
             continue
 
-        if not has_photo and text.strip() in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
+        if not has_photo and cleaned_text in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
             try:
                 quick_map = {
                     BTN_START_APP: "forex",
@@ -1137,13 +1104,21 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                     BTN_ROAST: "roast",
                     BTN_STATUS: "status",
                 }
-                handle_menu_action(quick_map[text.strip()], chat_id, sender_name, state, end_time, reply_to_message_id=message_id)
+                handle_menu_action(
+                    quick_map[cleaned_text],
+                    chat_id,
+                    sender_name,
+                    state,
+                    end_time,
+                    reply_to_message_id=message_id,
+                    is_group=is_group,
+                )
             except Exception as e:
-                print(f"Gagal proses tombol menu {text.strip()}: {e}", file=sys.stderr, flush=True)
+                print(f"Gagal proses tombol menu {cleaned_text}: {e}", file=sys.stderr, flush=True)
             continue
 
-        if not has_photo and text.strip() and is_rdp_request(text):
-            send_rdp_package(chat_id, sender_name, text, state, reply_to_message_id=message_id)
+        if not has_photo and cleaned_text and is_rdp_request(cleaned_text):
+            send_rdp_package(chat_id, sender_name, cleaned_text, state, reply_to_message_id=message_id)
             continue
 
         image_b64 = None
@@ -1172,10 +1147,10 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                     parse_mode="HTML",
                 )
                 continue
-            prompt_text = text.strip() or "Lihat foto ini lalu beri komentar sarkas menggurui dan lucu."
+            prompt_text = cleaned_text or "Lihat foto ini lalu beri komentar sarkas menggurui dan lucu."
         else:
             model_to_use = state["chat_model"]
-            prompt_text = text.strip()
+            prompt_text = cleaned_text or text.strip()
 
         try:
             reply_text, was_angry = ask_groq(
@@ -1193,9 +1168,9 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 format_styled_reply(badge, reply_text),
                 reply_to_message_id=message_id,
                 parse_mode="HTML",
-                reply_markup=get_main_reply_keyboard(),
+                reply_markup=None if is_group else get_main_reply_keyboard(),
             )
-            print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}) pakai {model_to_use} [angry={was_angry}].", flush=True)
+            print(f"Membalas pesan dari {sender_name} (chat_id={chat_id}, group={is_group}) pakai {model_to_use} [angry={was_angry}].", flush=True)
         except Exception as e:
             err_str = str(e)
             switched = False
@@ -1225,7 +1200,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                             format_styled_reply(badge, reply_text),
                             reply_to_message_id=message_id,
                             parse_mode="HTML",
-                            reply_markup=get_main_reply_keyboard(),
+                            reply_markup=None if is_group else get_main_reply_keyboard(),
                         )
                         print(f"Beralih ke model {alt_model} dan membalas {sender_name}.", flush=True)
                         switched = True
@@ -1258,19 +1233,23 @@ def main() -> None:
         print("Error: TELEGRAM_TOKEN atau GROQ_API_KEY kosong.", file=sys.stderr)
         sys.exit(1)
 
+    identity = fetch_bot_identity()
     register_bot_description()
     register_chat_menu_button()
     register_bot_commands()
 
     models_info = resolve_groq_models()
     state = {
+        "bot_id": identity.get("id"),
+        "bot_username": identity.get("username") or "",
+        "bot_first_name": identity.get("first_name") or "",
         "chat_model": models_info["chat_model"],
         "chat_candidates": models_info["chat_candidates"],
         "vision_model": models_info["vision_model"],
         "vision_candidates": models_info["vision_candidates"],
     }
     print(
-        f"Model chat aktif: {state['chat_model']} | Model vision aktif: {state['vision_model'] or 'Tidak tersedia'}",
+        f"Bot @{state['bot_username'] or '-'} | Chat: {state['chat_model']} | Vision: {state['vision_model'] or 'Tidak tersedia'}",
         flush=True,
     )
 
@@ -1278,7 +1257,7 @@ def main() -> None:
     end_time = start_time + RUN_DURATION_SECONDS
     current_offset = load_last_offset()
 
-    print("Bot aktif! Mode siaga berjalan...", flush=True)
+    print("Bot aktif! Mode siaga selama 6 jam...", flush=True)
 
     while time.monotonic() < end_time:
         try:
@@ -1291,7 +1270,7 @@ def main() -> None:
             break
         time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
 
-    print("Sesi selesai.", flush=True)
+    print("Sesi 6 jam selesai.", flush=True)
 
 
 if __name__ == "__main__":
