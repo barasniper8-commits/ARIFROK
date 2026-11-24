@@ -15,7 +15,7 @@ BOT_INSTANCES = [
         "name": "Bot-1",
         "telegram_token": os.getenv(
             "TELEGRAM_TOKEN_1",
-            os.getenv("TELEGRAM_TOKEN", "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"),
+            os.getenv("TELEGRAM_TOKEN", "9192278111:AAGcd7MsEDiwgggw77nCZSX3WdT19oXEo9w"),
         ),
         "groq_api_key": os.getenv(
             "GROQ_API_KEY_1",
