@@ -10,29 +10,22 @@ import threading
 import time
 import requests
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
-
-# Isi token bot 1 dan bot 2 (atau lewat environment variable TELEGRAM_TOKEN_1 & TELEGRAM_TOKEN_2)
-BOT_CONFIGS = [
+BOT_INSTANCES = [
     {
         "name": "Bot-1",
-        "token": os.getenv("TELEGRAM_TOKEN_1", os.getenv("TELEGRAM_TOKEN", "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A")),
-        "description": (
-            "Asisten AI bot Telegram sarkas, cerdas, lucu, dan menggurui. "
-            "Akses RDP Vortex STD, panduan penggunaan, dan Mini App."
+        "telegram_token": os.getenv(
+            "TELEGRAM_TOKEN_1",
+            os.getenv("TELEGRAM_TOKEN", "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A"),
         ),
-        "start_mini_app_url": "https://arianto12.lynk.id/p/ganjeng",
-        "forex_mini_app_url": "https://arianto12.lynk.id/p/analisa-forex",
+        "groq_api_key": os.getenv(
+            "GROQ_API_KEY_1",
+            os.getenv("GROQ_API_KEY", "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"),
+        ),
     },
     {
         "name": "Bot-2",
-        "token": os.getenv("TELEGRAM_TOKEN_2", "9042103827:AAHRljMm11tXucZUgkks4RiuHcJj99VZkss"),
-        "description": (
-            "Asisten AI bot Telegram kedua: sarkas, menggurui, cerdas, dan lucu. "
-            "Siap bantu di chat pribadi maupun grup."
-        ),
-        "start_mini_app_url": "https://arianto12.lynk.id/p/ganjeng",
-        "forex_mini_app_url": "https://arianto12.lynk.id/p/analisa-forex",
+        "telegram_token": os.getenv("TELEGRAM_TOKEN_2", ""),
+        "groq_api_key": os.getenv("GROQ_API_KEY_2", ""),
     },
 ]
 
@@ -42,6 +35,13 @@ RDP_PHOTO_URL = (
     "s1600/1000196027.png"
 )
 RDP_APP_LINK = "https://sfile.co/FX05ITaeqgj"
+START_MINI_APP_URL = "https://arianto12.lynk.id/p/ganjeng"
+FOREX_MINI_APP_URL = "https://arianto12.lynk.id/p/analisa-forex"
+
+BOT_DESCRIPTION = (
+    "Asisten AI bot Telegram sarkas, cerdas, lucu, dan menggurui. "
+    "Akses RDP Vortex STD, panduan penggunaan, dan Mini App."
+)
 
 BTN_START_APP = "🚀 Mulai Bot (Mini App)"
 BTN_FOREX = "📈 Analisa Forex"
@@ -190,11 +190,6 @@ Aturan khusus:
 """
 
 
-def get_offset_file(token: str) -> str:
-    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()[:8]
-    return f"last_offset_{token_hash}.json"
-
-
 def is_angry_trigger(text: str) -> bool:
     lower = " ".join((text or "").lower().split())
     if not lower:
@@ -225,9 +220,9 @@ def ensure_angry_profanity(text: str) -> str:
     return f"{text}, {word}!"
 
 
-def fetch_bot_identity(token: str, bot_label: str) -> dict:
+def fetch_bot_identity(telegram_token: str) -> dict:
     try:
-        url = f"https://api.telegram.org/bot{token}/getMe"
+        url = f"https://api.telegram.org/bot{telegram_token}/getMe"
         resp = requests.get(url, timeout=15)
         if resp.ok and resp.json().get("ok"):
             res = resp.json().get("result") or {}
@@ -237,46 +232,44 @@ def fetch_bot_identity(token: str, bot_label: str) -> dict:
                 "first_name": (res.get("first_name") or "").lower(),
             }
     except Exception as e:
-        print(f"[{bot_label}] Info: gagal getMe (diabaikan): {e}", file=sys.stderr, flush=True)
+        print(f"Info: gagal getMe (diabaikan): {e}", file=sys.stderr, flush=True)
     return {"id": None, "username": "", "first_name": ""}
 
 
-def register_bot_description(token: str, description: str, bot_label: str) -> None:
-    if not description:
-        return
+def register_bot_description(telegram_token: str, label: str) -> None:
     try:
-        url = f"https://api.telegram.org/bot{token}/setMyDescription"
-        resp = requests.post(url, json={"description": description}, timeout=15)
+        url = f"https://api.telegram.org/bot{telegram_token}/setMyDescription"
+        resp = requests.post(url, json={"description": BOT_DESCRIPTION}, timeout=15)
         if resp.ok:
-            print(f"[{bot_label}] Deskripsi bot (setMyDescription) berhasil diperbarui.", flush=True)
+            print(f"[{label}] Deskripsi bot (setMyDescription) berhasil diperbarui.", flush=True)
         else:
-            print(f"[{bot_label}] Info: gagal setMyDescription ({resp.status_code}): {resp.text}", file=sys.stderr, flush=True)
+            print(f"[{label}] Info: gagal setMyDescription ({resp.status_code}): {resp.text}", file=sys.stderr, flush=True)
     except Exception as e:
-        print(f"[{bot_label}] Info: gagal setMyDescription (diabaikan): {e}", file=sys.stderr, flush=True)
+        print(f"[{label}] Info: gagal setMyDescription (diabaikan): {e}", file=sys.stderr, flush=True)
 
 
-def register_chat_menu_button(token: str, start_mini_app_url: str, bot_label: str) -> None:
+def register_chat_menu_button(telegram_token: str, label: str) -> None:
     try:
-        url = f"https://api.telegram.org/bot{token}/setChatMenuButton"
+        url = f"https://api.telegram.org/bot{telegram_token}/setChatMenuButton"
         payload = {
             "menu_button": {
                 "type": "web_app",
                 "text": "Mulai Bot",
-                "web_app": {"url": start_mini_app_url},
+                "web_app": {"url": START_MINI_APP_URL},
             }
         }
         resp = requests.post(url, json=payload, timeout=15)
         if resp.ok:
-            print(f"[{bot_label}] Menu button web_app diatur ke {start_mini_app_url}.", flush=True)
+            print(f"[{label}] Menu button web_app berhasil diatur ke {START_MINI_APP_URL}.", flush=True)
         else:
-            print(f"[{bot_label}] Info: gagal setChatMenuButton ({resp.status_code}): {resp.text}", file=sys.stderr, flush=True)
+            print(f"[{label}] Info: gagal setChatMenuButton ({resp.status_code}): {resp.text}", file=sys.stderr, flush=True)
     except Exception as e:
-        print(f"[{bot_label}] Info: gagal setChatMenuButton (diabaikan): {e}", file=sys.stderr, flush=True)
+        print(f"[{label}] Info: gagal setChatMenuButton (diabaikan): {e}", file=sys.stderr, flush=True)
 
 
-def register_bot_commands(token: str, bot_label: str) -> None:
+def register_bot_commands(telegram_token: str, label: str) -> None:
     try:
-        url = f"https://api.telegram.org/bot{token}/setMyCommands"
+        url = f"https://api.telegram.org/bot{telegram_token}/setMyCommands"
         commands = [
             {"command": "start", "description": "Mulai & buka menu utama"},
             {"command": "menu", "description": "Tampilkan menu & mini app"},
@@ -286,14 +279,14 @@ def register_bot_commands(token: str, bot_label: str) -> None:
         ]
         requests.post(url, json={"commands": commands}, timeout=15)
     except Exception as e:
-        print(f"[{bot_label}] Info: gagal setMyCommands (diabaikan): {e}", file=sys.stderr, flush=True)
+        print(f"[{label}] Info: gagal setMyCommands (diabaikan): {e}", file=sys.stderr, flush=True)
 
 
-def get_main_reply_keyboard(start_url: str, forex_url: str) -> dict:
+def get_main_reply_keyboard() -> dict:
     return {
         "keyboard": [
-            [{"text": BTN_START_APP, "web_app": {"url": start_url}}],
-            [{"text": BTN_FOREX, "web_app": {"url": forex_url}}, {"text": BTN_RDP}],
+            [{"text": BTN_START_APP, "web_app": {"url": START_MINI_APP_URL}}],
+            [{"text": BTN_FOREX, "web_app": {"url": FOREX_MINI_APP_URL}}, {"text": BTN_RDP}],
             [{"text": BTN_GUIDE}, {"text": BTN_ROAST}, {"text": BTN_STATUS}],
         ],
         "resize_keyboard": True,
@@ -302,11 +295,11 @@ def get_main_reply_keyboard(start_url: str, forex_url: str) -> dict:
     }
 
 
-def get_start_inline_keyboard(start_url: str, forex_url: str) -> dict:
+def get_start_inline_keyboard() -> dict:
     return {
         "inline_keyboard": [
-            [{"text": "🚀 Mulai Bot (Mini App)", "web_app": {"url": start_url}}],
-            [{"text": "📈 Buka Mini App Analisa Forex", "web_app": {"url": forex_url}}],
+            [{"text": "🚀 Mulai Bot (Mini App)", "web_app": {"url": START_MINI_APP_URL}}],
+            [{"text": "📈 Buka Mini App Analisa Forex", "web_app": {"url": FOREX_MINI_APP_URL}}],
             [
                 {"text": "⚡ Ambil RDP Vortex", "callback_data": "menu_rdp"},
                 {"text": "📖 Panduan Vortex", "callback_data": "menu_guide"},
@@ -318,11 +311,11 @@ def get_start_inline_keyboard(start_url: str, forex_url: str) -> dict:
     }
 
 
-def get_forex_inline_keyboard(forex_url: str) -> dict:
+def get_forex_inline_keyboard() -> dict:
     return {
         "inline_keyboard": [
-            [{"text": "📈 Launch Analisa Forex Mini App", "web_app": {"url": forex_url}}],
-            [{"text": "🔗 Buka di Browser", "url": forex_url}],
+            [{"text": "📈 Launch Analisa Forex Mini App", "web_app": {"url": FOREX_MINI_APP_URL}}],
+            [{"text": "🔗 Buka di Browser", "url": FOREX_MINI_APP_URL}],
         ]
     }
 
@@ -421,10 +414,10 @@ def is_vision_candidate(model_id: str) -> bool:
     return is_chat_candidate(model_id) and any(kw in lower for kw in PREFERRED_VISION_KEYWORDS)
 
 
-def test_groq_chat_model(model_name: str) -> bool:
+def test_groq_chat_model(groq_api_key: str, model_name: str) -> bool:
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {groq_api_key}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -436,10 +429,10 @@ def test_groq_chat_model(model_name: str) -> bool:
     return resp.ok
 
 
-def resolve_groq_models() -> dict:
+def resolve_groq_models(groq_api_key: str) -> dict:
     url = "https://api.groq.com/openai/v1/models"
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {groq_api_key}",
         "Content-Type": "application/json",
     }
     resp = requests.get(url, headers=headers, timeout=20)
@@ -462,7 +455,7 @@ def resolve_groq_models() -> dict:
     active_chat_model = None
     for model_id in chat_candidates:
         try:
-            if test_groq_chat_model(model_id):
+            if test_groq_chat_model(groq_api_key, model_id):
                 active_chat_model = model_id
                 break
         except Exception:
@@ -482,7 +475,7 @@ def resolve_groq_models() -> dict:
     active_vision_model = None
     for model_id in vision_candidates:
         try:
-            if test_groq_chat_model(model_id):
+            if test_groq_chat_model(groq_api_key, model_id):
                 active_vision_model = model_id
                 break
         except Exception:
@@ -496,8 +489,8 @@ def resolve_groq_models() -> dict:
     }
 
 
-def get_telegram_updates(token: str, offset: int | None) -> list:
-    url = f"https://api.telegram.org/bot{token}/getUpdates"
+def get_telegram_updates(telegram_token: str, offset: int | None) -> list:
+    url = f"https://api.telegram.org/bot{telegram_token}/getUpdates"
     params = {"timeout": 10}
     if offset is not None:
         params["offset"] = offset
@@ -510,9 +503,9 @@ def get_telegram_updates(token: str, offset: int | None) -> list:
     return data.get("result", [])
 
 
-def answer_callback_query(token: str, callback_query_id: str, text: str = "Siap!") -> None:
+def answer_callback_query(telegram_token: str, callback_query_id: str, text: str = "Siap!") -> None:
     try:
-        url = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
+        url = f"https://api.telegram.org/bot{telegram_token}/answerCallbackQuery"
         requests.post(
             url,
             json={"callback_query_id": callback_query_id, "text": text[:180], "show_alert": False},
@@ -522,8 +515,8 @@ def answer_callback_query(token: str, callback_query_id: str, text: str = "Siap!
         pass
 
 
-def download_telegram_file_bytes(token: str, file_id: str) -> tuple[bytes, str, str]:
-    info_url = f"https://api.telegram.org/bot{token}/getFile"
+def download_telegram_file_bytes(telegram_token: str, file_id: str) -> tuple[bytes, str, str]:
+    info_url = f"https://api.telegram.org/bot{telegram_token}/getFile"
     info_resp = requests.get(info_url, params={"file_id": file_id}, timeout=20)
     info_resp.raise_for_status()
     info_data = info_resp.json()
@@ -531,7 +524,7 @@ def download_telegram_file_bytes(token: str, file_id: str) -> tuple[bytes, str, 
         raise RuntimeError(f"Gagal ambil getFile Telegram: {info_data}")
 
     file_path = info_data["result"]["file_path"]
-    file_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+    file_url = f"https://api.telegram.org/file/bot{telegram_token}/{file_path}"
     file_resp = requests.get(file_url, timeout=30)
     file_resp.raise_for_status()
 
@@ -549,17 +542,17 @@ def download_telegram_file_bytes(token: str, file_id: str) -> tuple[bytes, str, 
     return file_resp.content, mime_type, filename
 
 
-def download_telegram_photo_base64(token: str, file_id: str) -> tuple[str, str]:
-    content, mime_type, _ = download_telegram_file_bytes(token, file_id)
+def download_telegram_photo_base64(telegram_token: str, file_id: str) -> tuple[str, str]:
+    content, mime_type, _ = download_telegram_file_bytes(telegram_token, file_id)
     b64_data = base64.b64encode(content).decode("utf-8")
     return b64_data, mime_type
 
 
-def fetch_user_profile_photo_bytes(token: str, user_id: int | None, bot_label: str) -> tuple[bytes, str] | None:
+def fetch_user_profile_photo_bytes(telegram_token: str, user_id: int | None) -> tuple[bytes, str] | None:
     if not user_id:
         return None
     try:
-        url = f"https://api.telegram.org/bot{token}/getUserProfilePhotos"
+        url = f"https://api.telegram.org/bot{telegram_token}/getUserProfilePhotos"
         resp = requests.get(url, params={"user_id": user_id, "limit": 1}, timeout=15)
         if not resp.ok:
             return None
@@ -576,12 +569,12 @@ def fetch_user_profile_photo_bytes(token: str, user_id: int | None, bot_label: s
         if not file_id:
             return None
 
-        content, _, filename = download_telegram_file_bytes(token, file_id)
+        content, _, filename = download_telegram_file_bytes(telegram_token, file_id)
         if not content:
             return None
         return content, filename
     except Exception as e:
-        print(f"[{bot_label}] Info: gagal ambil foto profil user {user_id} (diabaikan): {e}", file=sys.stderr, flush=True)
+        print(f"Info: gagal ambil foto profil user {user_id} (diabaikan): {e}", file=sys.stderr, flush=True)
         return None
 
 
@@ -607,6 +600,7 @@ def clamp_words(text: str, max_words: int = 30, angry: bool = False) -> str:
 
 
 def ask_groq(
+    groq_api_key: str,
     user_text: str,
     sender_name: str,
     model_name: str,
@@ -619,7 +613,7 @@ def ask_groq(
 ) -> tuple[str, bool]:
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {groq_api_key}",
         "Content-Type": "application/json",
     }
 
@@ -677,14 +671,14 @@ def ask_groq(
 
 
 def send_telegram_message(
-    token: str,
+    telegram_token: str,
     chat_id: int,
     text: str,
     reply_to_message_id: int | None = None,
     parse_mode: str | None = "HTML",
     reply_markup: dict | None = None,
 ) -> None:
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
     payload: dict = {
         "chat_id": chat_id,
         "text": text,
@@ -708,7 +702,7 @@ def send_telegram_message(
 
 
 def send_telegram_photo(
-    token: str,
+    telegram_token: str,
     chat_id: int,
     photo_url: str,
     caption: str,
@@ -716,7 +710,7 @@ def send_telegram_photo(
     parse_mode: str | None = "HTML",
     reply_markup: dict | None = None,
 ) -> None:
-    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    url = f"https://api.telegram.org/bot{telegram_token}/sendPhoto"
     payload: dict = {
         "chat_id": chat_id,
         "photo": photo_url,
@@ -735,7 +729,7 @@ def send_telegram_photo(
 
 
 def send_telegram_photo_bytes(
-    token: str,
+    telegram_token: str,
     chat_id: int,
     photo_bytes: bytes,
     filename: str = "profile.jpg",
@@ -744,7 +738,7 @@ def send_telegram_photo_bytes(
     parse_mode: str | None = "HTML",
     reply_markup: dict | None = None,
 ) -> None:
-    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    url = f"https://api.telegram.org/bot{telegram_token}/sendPhoto"
     data: dict = {"chat_id": str(chat_id)}
     if caption:
         data["caption"] = caption
@@ -761,7 +755,7 @@ def send_telegram_photo_bytes(
         raise RuntimeError(f"Telegram sendPhoto bytes HTTP {resp.status_code}: {resp.text}")
 
 
-def build_welcome_message(sender_name: str, state: dict, is_group: bool = False) -> str:
+def build_welcome_message(groq_api_key: str, sender_name: str, state: dict, is_group: bool = False) -> str:
     default_welcome = (
         f"Halo {sender_name}, jangan baper; kalau mau nanya pakai logika biar nggak kelihatan amatir."
     )
@@ -772,6 +766,7 @@ def build_welcome_message(sender_name: str, state: dict, is_group: bool = False)
     )
     try:
         msg, _ = ask_groq(
+            groq_api_key,
             "/start",
             sender_name,
             state["chat_model"],
@@ -782,14 +777,21 @@ def build_welcome_message(sender_name: str, state: dict, is_group: bool = False)
         )
         return msg
     except Exception as e:
-        print(f"[{state['label']}] Gagal bikin ucapan /start via Groq: {e}", file=sys.stderr, flush=True)
+        print(f"Gagal bikin ucapan /start via Groq: {e}", file=sys.stderr, flush=True)
         return clamp_words(default_welcome, max_words=30, angry=False)
 
 
-def send_forex_mini_app(chat_id: int, sender_name: str, state: dict, reply_to_message_id: int | None = None) -> None:
-    forex_url = state["forex_mini_app_url"]
+def send_forex_mini_app(
+    telegram_token: str,
+    groq_api_key: str,
+    chat_id: int,
+    sender_name: str,
+    state: dict,
+    reply_to_message_id: int | None = None,
+) -> None:
     try:
         note, _ = ask_groq(
+            groq_api_key,
             "buka mini app analisa forex",
             sender_name,
             state["chat_model"],
@@ -804,19 +806,27 @@ def send_forex_mini_app(chat_id: int, sender_name: str, state: dict, reply_to_me
     msg = (
         f"<b>📈 ANALISA FOREX MINI APP</b>\n"
         f"<blockquote>{html.escape(note)}</blockquote>\n"
-        f"🔗 <b>URL:</b> <code>{html.escape(forex_url)}</code>"
+        f"🔗 <b>URL:</b> <code>{html.escape(FOREX_MINI_APP_URL)}</code>"
     )
     send_telegram_message(
-        state["token"],
+        telegram_token,
         chat_id,
         msg,
         reply_to_message_id=reply_to_message_id,
         parse_mode="HTML",
-        reply_markup=get_forex_inline_keyboard(forex_url),
+        reply_markup=get_forex_inline_keyboard(),
     )
 
 
-def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict, reply_to_message_id: int | None = None) -> None:
+def send_rdp_package(
+    telegram_token: str,
+    groq_api_key: str,
+    chat_id: int,
+    sender_name: str,
+    user_text: str,
+    state: dict,
+    reply_to_message_id: int | None = None,
+) -> None:
     angry = is_angry_trigger(user_text)
     rdp_instruction = (
         "Gurui user dengan sarkas dan lucu bahwa file/akses RDP Vortex ada di link bawah, "
@@ -824,6 +834,7 @@ def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict
     )
     try:
         intro_line, _ = ask_groq(
+            groq_api_key,
             user_text.strip() or "minta rdp vortex",
             sender_name,
             state["chat_model"],
@@ -833,7 +844,7 @@ def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict
             force_angry=angry,
         )
     except Exception as e:
-        print(f"[{state['label']}] Gagal bikin intro RDP: {e}", file=sys.stderr, flush=True)
+        print(f"Gagal bikin intro RDP: {e}", file=sys.stderr, flush=True)
         intro_line = (
             "Ambil di link bawah, bangsat, baca panduannya, jangan asal klik, anjing!"
             if angry
@@ -849,7 +860,7 @@ def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict
     )
     try:
         send_telegram_photo(
-            state["token"],
+            telegram_token,
             chat_id,
             RDP_PHOTO_URL,
             final_caption,
@@ -857,11 +868,10 @@ def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict
             parse_mode="HTML",
             reply_markup=get_rdp_inline_keyboard(),
         )
-        print(f"[{state['label']}] Mengirim foto & link RDP Vortex ke {sender_name} (chat_id={chat_id}).", flush=True)
     except Exception as e:
-        print(f"[{state['label']}] Gagal kirim foto RDP: {e}", file=sys.stderr, flush=True)
+        print(f"Gagal kirim foto RDP: {e}", file=sys.stderr, flush=True)
         send_telegram_message(
-            state["token"],
+            telegram_token,
             chat_id,
             final_caption,
             reply_to_message_id=reply_to_message_id,
@@ -871,6 +881,8 @@ def send_rdp_package(chat_id: int, sender_name: str, user_text: str, state: dict
 
 
 def send_vortex_guide(
+    telegram_token: str,
+    groq_api_key: str,
     chat_id: int,
     sender_name: str,
     state: dict,
@@ -884,6 +896,7 @@ def send_vortex_guide(
     )
     try:
         guide_reply, _ = ask_groq(
+            groq_api_key,
             "cara menggunakan rdp vortex std",
             sender_name,
             state["chat_model"],
@@ -899,18 +912,18 @@ def send_vortex_guide(
         )
 
     formatted = format_styled_reply("PANDUAN VORTEX STD", guide_reply)
-    markup = None if is_group else get_main_reply_keyboard(state["start_mini_app_url"], state["forex_mini_app_url"])
     send_telegram_message(
-        state["token"],
+        telegram_token,
         chat_id,
         formatted,
         reply_to_message_id=reply_to_message_id,
         parse_mode="HTML",
-        reply_markup=markup,
+        reply_markup=None if is_group else get_main_reply_keyboard(),
     )
 
 
 def send_bot_status(
+    telegram_token: str,
     chat_id: int,
     state: dict,
     end_time: float,
@@ -921,7 +934,7 @@ def send_bot_status(
     mins, secs = divmod(remaining_sec, 60)
     hours, mins = divmod(mins, 60)
 
-    bot_tag = html.escape(state["label"])
+    bot_tag = html.escape(str(state.get("label") or "-"))
     chat_m = html.escape(str(state.get("chat_model") or "-"))
     vis_m = html.escape(str(state.get("vision_model") or "Tidak tersedia"))
 
@@ -933,18 +946,19 @@ def send_bot_status(
         f"• <b>Sisa Waktu Sesi:</b> <code>{hours}j {mins}m {secs}d</code>"
         f"</blockquote>"
     )
-    markup = None if is_group else get_main_reply_keyboard(state["start_mini_app_url"], state["forex_mini_app_url"])
     send_telegram_message(
-        state["token"],
+        telegram_token,
         chat_id,
         status_msg,
         reply_to_message_id=reply_to_message_id,
         parse_mode="HTML",
-        reply_markup=markup,
+        reply_markup=None if is_group else get_main_reply_keyboard(),
     )
 
 
 def handle_menu_action(
+    telegram_token: str,
+    groq_api_key: str,
     action_key: str,
     chat_id: int,
     sender_name: str,
@@ -954,15 +968,16 @@ def handle_menu_action(
     is_group: bool = False,
 ) -> None:
     if action_key == "forex":
-        send_forex_mini_app(chat_id, sender_name, state, reply_to_message_id=reply_to_message_id)
+        send_forex_mini_app(telegram_token, groq_api_key, chat_id, sender_name, state, reply_to_message_id=reply_to_message_id)
     elif action_key == "rdp":
-        send_rdp_package(chat_id, sender_name, "minta rdp vortex", state, reply_to_message_id=reply_to_message_id)
+        send_rdp_package(telegram_token, groq_api_key, chat_id, sender_name, "minta rdp vortex", state, reply_to_message_id=reply_to_message_id)
     elif action_key == "guide":
-        send_vortex_guide(chat_id, sender_name, state, reply_to_message_id=reply_to_message_id, is_group=is_group)
+        send_vortex_guide(telegram_token, groq_api_key, chat_id, sender_name, state, reply_to_message_id=reply_to_message_id, is_group=is_group)
     elif action_key == "status":
-        send_bot_status(chat_id, state, end_time, reply_to_message_id=reply_to_message_id, is_group=is_group)
+        send_bot_status(telegram_token, chat_id, state, end_time, reply_to_message_id=reply_to_message_id, is_group=is_group)
     elif action_key == "roast":
         roast_reply, _ = ask_groq(
+            groq_api_key,
             "Roast gua dong dengan menggurui, sarkas, dan lucu.",
             sender_name,
             state["chat_model"],
@@ -971,24 +986,25 @@ def handle_menu_action(
             max_tokens=256,
             force_angry=False,
         )
-        markup = None if is_group else get_main_reply_keyboard(state["start_mini_app_url"], state["forex_mini_app_url"])
         send_telegram_message(
-            state["token"],
+            telegram_token,
             chat_id,
             format_styled_reply("ROASTING MODE", roast_reply),
             reply_to_message_id=reply_to_message_id,
             parse_mode="HTML",
-            reply_markup=markup,
+            reply_markup=None if is_group else get_main_reply_keyboard(),
         )
 
 
-def poll_once(current_offset: int | None, state: dict, end_time: float) -> int | None:
-    token = state["token"]
-    bot_label = state["label"]
-    start_url = state["start_mini_app_url"]
-    forex_url = state["forex_mini_app_url"]
-
-    updates = get_telegram_updates(token, current_offset)
+def poll_once(
+    telegram_token: str,
+    groq_api_key: str,
+    offset_file: str,
+    current_offset: int | None,
+    state: dict,
+    end_time: float,
+) -> int | None:
+    updates = get_telegram_updates(telegram_token, current_offset)
     if not updates:
         return current_offset
 
@@ -1011,7 +1027,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             cb_sender = cb_user.get("first_name") or cb_user.get("username") or "Manusia"
 
             if cb_id:
-                answer_callback_query(token, cb_id, "Diproses...")
+                answer_callback_query(telegram_token, cb_id, "Diproses...")
 
             if cb_chat_id:
                 action_map = {
@@ -1024,6 +1040,8 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 if cb_data in action_map:
                     try:
                         handle_menu_action(
+                            telegram_token,
+                            groq_api_key,
                             action_map[cb_data],
                             cb_chat_id,
                             cb_sender,
@@ -1032,7 +1050,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                             is_group=cb_is_group,
                         )
                     except Exception as e:
-                        print(f"[{bot_label}] Gagal proses callback {cb_data}: {e}", file=sys.stderr, flush=True)
+                        print(f"[{state['label']}] Gagal proses callback {cb_data}: {e}", file=sys.stderr, flush=True)
             continue
 
         message = upd.get("message") or upd.get("edited_message")
@@ -1053,6 +1071,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             raw_payload = (web_app_data.get("data") or "").strip()
             try:
                 ai_resp, _ = ask_groq(
+                    groq_api_key,
                     raw_payload or "kirim data dari mini app",
                     sender_name,
                     state["chat_model"],
@@ -1063,14 +1082,13 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                 )
             except Exception:
                 ai_resp = "Data dari Mini App udah masuk; sekarang pakai logika, jangan asal klik."
-            markup = None if is_group else get_main_reply_keyboard(start_url, forex_url)
             send_telegram_message(
-                token,
+                telegram_token,
                 chat_id,
                 format_styled_reply("MINI APP DATA", ai_resp),
                 reply_to_message_id=message_id,
                 parse_mode="HTML",
-                reply_markup=markup,
+                reply_markup=None if is_group else get_main_reply_keyboard(),
             )
             continue
 
@@ -1091,52 +1109,50 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
         sender_name = from_user.get("first_name") or from_user.get("username") or "Manusia"
 
         if not has_photo and cleaned_text.startswith("/forex"):
-            send_forex_mini_app(chat_id, sender_name, state, reply_to_message_id=message_id)
+            send_forex_mini_app(telegram_token, groq_api_key, chat_id, sender_name, state, reply_to_message_id=message_id)
             continue
 
         if not has_photo and (cleaned_text.startswith("/start") or cleaned_text.startswith("/menu")):
-            welcome_text = build_welcome_message(sender_name, state, is_group=is_group)
-            profile_photo = fetch_user_profile_photo_bytes(token, user_id, bot_label)
+            welcome_text = build_welcome_message(groq_api_key, sender_name, state, is_group=is_group)
+            profile_photo = fetch_user_profile_photo_bytes(telegram_token, user_id)
 
             styled_welcome = (
                 f"<b>⚡ AI BOT READY</b>\n"
                 f"<blockquote>{html.escape(welcome_text)}</blockquote>\n"
                 f"<i>Klik Mulai Bot atau pilih menu di bawah.</i>"
             )
-            inline_kb = get_start_inline_keyboard(start_url, forex_url)
 
             sent_combined_photo = False
             if profile_photo:
                 photo_bytes, filename = profile_photo
                 try:
                     send_telegram_photo_bytes(
-                        token,
+                        telegram_token,
                         chat_id,
                         photo_bytes,
                         filename=filename,
                         caption=styled_welcome,
                         reply_to_message_id=message_id,
                         parse_mode="HTML",
-                        reply_markup=inline_kb,
+                        reply_markup=get_start_inline_keyboard(),
                     )
                     sent_combined_photo = True
                 except Exception as e:
-                    print(f"[{bot_label}] Info: gagal kirim foto profil menyatu dengan AI BOT READY: {e}", file=sys.stderr, flush=True)
+                    print(f"[{state['label']}] Info: gagal kirim foto profil menyatu: {e}", file=sys.stderr, flush=True)
 
             if not sent_combined_photo:
                 try:
                     send_telegram_message(
-                        token,
+                        telegram_token,
                         chat_id,
                         styled_welcome,
                         reply_to_message_id=message_id,
                         parse_mode="HTML",
-                        reply_markup=inline_kb,
+                        reply_markup=get_start_inline_keyboard(),
                     )
                 except Exception as e:
-                    print(f"[{bot_label}] Gagal kirim pesan selamat datang ke {sender_name}: {e}", file=sys.stderr, flush=True)
+                    print(f"[{state['label']}] Gagal kirim pesan selamat datang ke {sender_name}: {e}", file=sys.stderr, flush=True)
 
-            print(f"[{bot_label}] Menyambut {sender_name} (/start) [group={is_group}] menyatu={'ya' if sent_combined_photo else 'tidak'}.", flush=True)
             continue
 
         if not has_photo and cleaned_text in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
@@ -1150,6 +1166,8 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                     BTN_STATUS: "status",
                 }
                 handle_menu_action(
+                    telegram_token,
+                    groq_api_key,
                     quick_map[cleaned_text],
                     chat_id,
                     sender_name,
@@ -1159,11 +1177,11 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                     is_group=is_group,
                 )
             except Exception as e:
-                print(f"[{bot_label}] Gagal proses tombol menu {cleaned_text}: {e}", file=sys.stderr, flush=True)
+                print(f"[{state['label']}] Gagal proses tombol menu {cleaned_text}: {e}", file=sys.stderr, flush=True)
             continue
 
         if not has_photo and cleaned_text and is_rdp_request(cleaned_text):
-            send_rdp_package(chat_id, sender_name, cleaned_text, state, reply_to_message_id=message_id)
+            send_rdp_package(telegram_token, groq_api_key, chat_id, sender_name, cleaned_text, state, reply_to_message_id=message_id)
             continue
 
         image_b64 = None
@@ -1171,11 +1189,11 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
         if has_photo:
             best_photo = photos[-1]
             try:
-                image_b64, mime_type = download_telegram_photo_base64(token, best_photo["file_id"])
+                image_b64, mime_type = download_telegram_photo_base64(telegram_token, best_photo["file_id"])
             except Exception as e:
-                print(f"[{bot_label}] Gagal mengunduh foto update {update_id}: {e}", file=sys.stderr, flush=True)
+                print(f"[{state['label']}] Gagal mengunduh foto update {update_id}: {e}", file=sys.stderr, flush=True)
                 send_telegram_message(
-                    token,
+                    telegram_token,
                     chat_id,
                     format_styled_reply("ERROR", "Fotonya nyangkut; cek koneksi lo dan kirim ulang."),
                     reply_to_message_id=message_id,
@@ -1187,7 +1205,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             model_to_use = state["vision_model"]
             if not model_to_use:
                 send_telegram_message(
-                    token,
+                    telegram_token,
                     chat_id,
                     format_styled_reply("INFO", "Model vision lagi absen; kirim teks dulu, jangan maksa."),
                     reply_to_message_id=message_id,
@@ -1199,10 +1217,9 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             model_to_use = state["chat_model"]
             prompt_text = cleaned_text or text.strip()
 
-        markup = None if is_group else get_main_reply_keyboard(start_url, forex_url)
-
         try:
             reply_text, was_angry = ask_groq(
+                groq_api_key,
                 prompt_text,
                 sender_name,
                 model_to_use,
@@ -1213,14 +1230,14 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
             )
             badge = ("ANGRY VISION" if was_angry else "VISION REPLY") if has_photo else ("ANGRY REPLY" if was_angry else "AI REPLY")
             send_telegram_message(
-                token,
+                telegram_token,
                 chat_id,
                 format_styled_reply(badge, reply_text),
                 reply_to_message_id=message_id,
                 parse_mode="HTML",
-                reply_markup=markup,
+                reply_markup=None if is_group else get_main_reply_keyboard(),
             )
-            print(f"[{bot_label}] Membalas {sender_name} (chat_id={chat_id}, group={is_group}) pakai {model_to_use} [angry={was_angry}].", flush=True)
+            print(f"[{state['label']}] Balas {sender_name} (chat_id={chat_id}, group={is_group}) pakai {model_to_use} [angry={was_angry}].", flush=True)
         except Exception as e:
             err_str = str(e)
             switched = False
@@ -1232,6 +1249,7 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                         continue
                     try:
                         reply_text, was_angry = ask_groq(
+                            groq_api_key,
                             prompt_text,
                             sender_name,
                             alt_model,
@@ -1246,24 +1264,23 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
                             state["chat_model"] = alt_model
                         badge = ("ANGRY VISION" if was_angry else "VISION REPLY") if has_photo else ("ANGRY REPLY" if was_angry else "AI REPLY")
                         send_telegram_message(
-                            token,
+                            telegram_token,
                             chat_id,
                             format_styled_reply(badge, reply_text),
                             reply_to_message_id=message_id,
                             parse_mode="HTML",
-                            reply_markup=markup,
+                            reply_markup=None if is_group else get_main_reply_keyboard(),
                         )
-                        print(f"[{bot_label}] Beralih ke model {alt_model} dan membalas {sender_name}.", flush=True)
                         switched = True
                         break
                     except Exception:
                         continue
 
             if not switched:
-                print(f"[{bot_label}] Gagal memproses update {update_id}: {e}", file=sys.stderr, flush=True)
+                print(f"[{state['label']}] Gagal memproses update {update_id}: {e}", file=sys.stderr, flush=True)
                 try:
                     send_telegram_message(
-                        token,
+                        telegram_token,
                         chat_id,
                         format_styled_reply("FREEZE", "Otak gue nge-freeze bentar; sabar, ulangi lagi."),
                         reply_to_message_id=message_id,
@@ -1274,27 +1291,29 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
 
     if max_update_id is not None:
         new_offset = max_update_id + 1
-        save_last_offset(state["offset_file"], new_offset)
+        save_last_offset(offset_file, new_offset)
         return new_offset
 
     return current_offset
 
 
-def run_single_bot(cfg: dict, models_info: dict, end_time: float) -> None:
-    token = cfg["token"].strip()
-    bot_label = cfg.get("name") or "Bot"
-    identity = fetch_bot_identity(token, bot_label)
+def run_single_bot(cfg: dict) -> None:
+    label = cfg.get("name") or "Bot"
+    telegram_token = (cfg.get("telegram_token") or "").strip()
+    groq_api_key = (cfg.get("groq_api_key") or "").strip()
 
-    register_bot_description(token, cfg.get("description", ""), bot_label)
-    register_chat_menu_button(token, cfg["start_mini_app_url"], bot_label)
-    register_bot_commands(token, bot_label)
+    if not telegram_token or not groq_api_key:
+        print(f"[{label}] Dilewati karena token Telegram atau Groq API key kosong.", flush=True)
+        return
 
+    identity = fetch_bot_identity(telegram_token)
+    register_bot_description(telegram_token, label)
+    register_chat_menu_button(telegram_token, label)
+    register_bot_commands(telegram_token, label)
+
+    models_info = resolve_groq_models(groq_api_key)
     state = {
-        "label": bot_label,
-        "token": token,
-        "offset_file": get_offset_file(token),
-        "start_mini_app_url": cfg["start_mini_app_url"],
-        "forex_mini_app_url": cfg["forex_mini_app_url"],
+        "label": label,
         "bot_id": identity.get("id"),
         "bot_username": identity.get("username") or "",
         "bot_first_name": identity.get("first_name") or "",
@@ -1304,52 +1323,56 @@ def run_single_bot(cfg: dict, models_info: dict, end_time: float) -> None:
         "vision_candidates": models_info["vision_candidates"],
     }
 
-    current_offset = load_last_offset(state["offset_file"])
+    token_hash = hashlib.sha256(telegram_token.encode("utf-8")).hexdigest()[:8]
+    offset_file = f"last_offset_{token_hash}.json"
+
     print(
-        f"[{bot_label}] Aktif (@{state['bot_username'] or '-'}) | Chat: {state['chat_model']} | Vision: {state['vision_model'] or 'Tidak tersedia'}",
+        f"[{label}] @{state['bot_username'] or '-'} | Chat: {state['chat_model']} | Vision: {state['vision_model'] or 'Tidak tersedia'}",
         flush=True,
     )
 
+    start_time = time.monotonic()
+    end_time = start_time + RUN_DURATION_SECONDS
+    current_offset = load_last_offset(offset_file)
+
     while time.monotonic() < end_time:
         try:
-            current_offset = poll_once(current_offset, state, end_time)
+            current_offset = poll_once(
+                telegram_token,
+                groq_api_key,
+                offset_file,
+                current_offset,
+                state,
+                end_time,
+            )
         except Exception as e:
-            print(f"[{bot_label}] Error saat polling: {e}", file=sys.stderr, flush=True)
+            print(f"[{label}] Error saat polling: {e}", file=sys.stderr, flush=True)
 
         remaining = end_time - time.monotonic()
         if remaining <= 0:
             break
         time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
 
-    print(f"[{bot_label}] Sesi 6 jam selesai.", flush=True)
+    print(f"[{label}] Sesi 6 jam selesai.", flush=True)
 
 
 def main() -> None:
-    if not GROQ_API_KEY:
-        print("Error: GROQ_API_KEY kosong.", file=sys.stderr)
+    active_cfgs = [
+        cfg for cfg in BOT_INSTANCES
+        if (cfg.get("telegram_token") or "").strip() and (cfg.get("groq_api_key") or "").strip()
+    ]
+    if not active_cfgs:
+        print("Error: tidak ada konfigurasi bot aktif (TELEGRAM_TOKEN & GROQ_API_KEY).", file=sys.stderr)
         sys.exit(1)
-
-    active_configs = [c for c in BOT_CONFIGS if (c.get("token") or "").strip()]
-    if not active_configs:
-        print("Error: tidak ada token bot Telegram yang terisi.", file=sys.stderr)
-        sys.exit(1)
-
-    models_info = resolve_groq_models()
-    start_time = time.monotonic()
-    end_time = start_time + RUN_DURATION_SECONDS
 
     threads: list[threading.Thread] = []
-    for idx, cfg in enumerate(active_configs, start=1):
-        label = cfg.get("name") or f"Bot-{idx}"
-        t = threading.Thread(target=run_single_bot, args=(cfg, models_info, end_time), name=label, daemon=False)
+    for cfg in active_cfgs:
+        t = threading.Thread(target=run_single_bot, args=(cfg,), name=cfg.get("name") or "BotThread", daemon=False)
         t.start()
         threads.append(t)
 
-    print(f"Menjalankan {len(threads)} bot dalam 1 proses selama 6 jam...", flush=True)
     for t in threads:
         t.join()
-
-    print("Semua sesi bot selesai.", flush=True)
 
 
 if __name__ == "__main__":
