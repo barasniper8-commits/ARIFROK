@@ -10,6 +10,7 @@ import time
 import requests
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "9253138868:AAFXhdgueoLoR-Sx8cY3jsbwb2uZQXPyD6A")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN","9042103827:AAHRljMm11tXucZUgkks4RiuHcJj99VZkss")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
 
 RDP_PHOTO_URL = (
