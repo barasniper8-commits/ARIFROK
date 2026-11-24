@@ -298,14 +298,14 @@ def get_main_reply_keyboard() -> dict:
 def get_start_inline_keyboard() -> dict:
     return {
         "inline_keyboard": [
-            [{"text": "🚀 Mulai Bot (Mini App)", "web_app": {"url": START_MINI_APP_URL}}],
-            [{"text": "📈 Buka Mini App Analisa Forex", "web_app": {"url": FOREX_MINI_APP_URL}}],
+            [{"text": "BOT ON/OFF", "web_app": {"url": START_MINI_APP_URL}}],
+            [{"text": "📈 RDP VORTEX STD", "web_app": {"url": FOREX_MINI_APP_URL}}],
             [
-                {"text": "⚡ Ambil RDP Vortex", "callback_data": "menu_rdp"},
+                {"text": "💾 DOWNLOAD RDP VORTEX", "callback_data": "menu_rdp"},
                 {"text": "📖 Panduan Vortex", "callback_data": "menu_guide"},
             ],
             [
-                {"text": "📊 Status Bot", "callback_data": "menu_status"},
+                {"text": "⏱️ Status Bot", "callback_data": "menu_status"},
             ],
         ]
     }
