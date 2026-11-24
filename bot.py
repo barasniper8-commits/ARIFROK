@@ -4,6 +4,7 @@ import json
 import os
 import random
 import re
+import shutil
 import sys
 import time
 import requests
@@ -148,7 +149,7 @@ FALLBACK_ANGRY_REPLIES = [
 ]
 
 OFFSET_FILE = "last_offset.json"
-RUN_DURATION_SECONDS = 6 * 60 * 60  # 1 jam = 3.600 detik
+RUN_DURATION_SECONDS = 6 * 60 * 60  # 6 jam (sesuai kode awal)
 POLL_INTERVAL_SECONDS = 5          # jeda cek pesan baru (detik)
 
 SYSTEM_PROMPT = """Kamu adalah asisten AI bot Telegram berbahasa Indonesia gaul-natural yang MARAH-MARAH, SARKAS, MENGGURUI, CERDAS, dan LUCU.
@@ -171,6 +172,117 @@ Aturan khusus:
 - Jika ditanya cara pakai RDP Vortex STD ("rdp vortex sd"): gurui dengan ringkas: siapkan aplikasi RDP & kredensial (IP, user, password atau Tailscale), login ke server, lalu jalankan MT5/MT4 atau aplikasi sesuai kebutuhan.
 - Jika ada foto: komentari detail foto dan caption-nya dengan sarkas menggurui dan lucu dalam 1–30 kata.
 """
+
+
+def get_battery_status() -> str:
+    """Membaca status baterai jika tersedia di OS/sysfs, atau mengembalikan info host/server."""
+    # Coba modul psutil jika terpasang
+    try:
+        import psutil  # type: ignore
+
+        batt = psutil.sensors_battery()
+        if batt is not None:
+            pct = round(batt.percent)
+            plug = "Mengisi daya" if batt.power_plugged else "Baterai"
+            return f"{pct}% ({plug})"
+    except Exception:
+        pass
+
+    # Coba Linux /sys/class/power_supply
+    power_root = "/sys/class/power_supply"
+    if os.path.isdir(power_root):
+        try:
+            for entry in sorted(os.listdir(power_root)):
+                cap_path = os.path.join(power_root, entry, "capacity")
+                status_path = os.path.join(power_root, entry, "status")
+                if os.path.isfile(cap_path):
+                    with open(cap_path, "r", encoding="utf-8") as f:
+                        pct = f.read().strip()
+                    status = ""
+                    if os.path.isfile(status_path):
+                        with open(status_path, "r", encoding="utf-8") as f:
+                            status = f.read().strip()
+                    return f"{pct}% ({status})" if status else f"{pct}%"
+        except Exception:
+            pass
+
+    # Fallback jika berjalan di server / container tanpa sensor baterai
+    env_batt = os.getenv("BATTERY_STATUS")
+    if env_batt:
+        return env_batt
+    return "AC / Cloud Host"
+
+
+def _format_bytes(num_bytes: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    val = float(max(0, num_bytes))
+    idx = 0
+    while val >= 1024 and idx < len(units) - 1:
+        val /= 1024.0
+        idx += 1
+    return f"{val:.1f} {units[idx]}"
+
+
+def get_ram_status() -> str:
+    """Membaca penggunaan RAM sistem secara dinamis."""
+    try:
+        import psutil  # type: ignore
+
+        vm = psutil.virtual_memory()
+        return f"{_format_bytes(vm.used)} / {_format_bytes(vm.total)} ({vm.percent:.0f}%)"
+    except Exception:
+        pass
+
+    meminfo_path = "/proc/meminfo"
+    if os.path.isfile(meminfo_path):
+        try:
+            info: dict[str, int] = {}
+            with open(meminfo_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        key = parts[0].strip()
+                        val_kb = int(parts[1].strip().split()[0])
+                        info[key] = val_kb * 1024
+            total = info.get("MemTotal", 0)
+            avail = info.get("MemAvailable", info.get("MemFree", 0))
+            if total > 0:
+                used = max(0, total - avail)
+                pct = (used / total) * 100.0
+                return f"{_format_bytes(used)} / {_format_bytes(total)} ({pct:.0f}%)"
+        except Exception:
+            pass
+
+    return "Tidak terdeteksi"
+
+
+def get_internal_storage_status() -> str:
+    """Membaca kapasitas penyimpanan internal (disk utama)."""
+    try:
+        usage = shutil.disk_usage("/")
+        used = usage.used
+        total = usage.total
+        pct = (used / total * 100.0) if total > 0 else 0.0
+        return f"{_format_bytes(used)} / {_format_bytes(total)} ({pct:.0f}%)"
+    except Exception:
+        return "Tidak terdeteksi"
+
+
+def format_remaining_time(remaining_sec: int) -> str:
+    """
+    Memformat sisa waktu. Jika <= 3660 detik (60 menit 60 detik), tampilkan dalam format
+    '60 menit 60 detik' (menit bisa 0..60 dan detik 0..60 saat tepat di batas, atau standar mm:ss).
+    Jika lebih dari itu, tampilkan jam, menit, detik.
+    """
+    sec = max(0, int(remaining_sec))
+    if sec == 3660:
+        return "60 menit 60 detik"
+    if sec <= 3600:
+        mins, rem = divmod(sec, 60)
+        return f"{mins} menit {rem} detik"
+    hours, rem = divmod(sec, 3600)
+    mins, secs = divmod(rem, 60)
+    return f"{hours} jam {mins} menit {secs} detik"
 
 
 def is_angry_trigger(text: str) -> bool:
@@ -242,7 +354,7 @@ def register_bot_commands() -> None:
             {"command": "menu", "description": "Tampilkan menu & mini app"},
             {"command": "forex", "description": "Buka info Mini App Analisa Forex"},
             {"command": "rdp", "description": "Ambil link & info RDP Vortex"},
-            {"command": "status", "description": "Cek model & sisa waktu sesi"},
+            {"command": "status", "description": "Cek status bot & perangkat"},
         ]
         requests.post(url, json={"commands": commands}, timeout=15)
     except Exception as e:
@@ -812,20 +924,29 @@ def send_vortex_guide(chat_id: int, sender_name: str, state: dict, reply_to_mess
     )
 
 
-def send_bot_status(chat_id: int, state: dict, end_time: float, reply_to_message_id: int | None = None) -> None:
+def send_bot_status(
+    chat_id: int,
+    sender_name: str,
+    end_time: float,
+    reply_to_message_id: int | None = None,
+) -> None:
     remaining_sec = max(0, int(end_time - time.monotonic()))
-    mins, secs = divmod(remaining_sec, 60)
-    hours, mins = divmod(mins, 60)
+    sisa_waktu_str = format_remaining_time(remaining_sec)
 
-    chat_m = html.escape(str(state.get("chat_model") or "-"))
-    vis_m = html.escape(str(state.get("vision_model") or "Tidak tersedia"))
+    user_label = html.escape(sender_name or "Manusia")
+    sisa_label = html.escape(sisa_waktu_str)
+    battery_label = html.escape(get_battery_status())
+    ram_label = html.escape(get_ram_status())
+    internal_label = html.escape(get_internal_storage_status())
 
     status_msg = (
         f"<b>📊 BOT STATUS</b>\n"
         f"<blockquote>"
-        f"• <b>Chat Model:</b> <code>{chat_m}</code>\n"
-        f"• <b>Vision Model:</b> <code>{vis_m}</code>\n"
-        f"• <b>Sisa Waktu Sesi:</b> <code>{hours}j {mins}m {secs}d</code>"
+        f"• <b>Pengguna:</b> <code>{user_label}</code>\n"
+        f"• <b>Sisa Waktu:</b> <code>{sisa_label}</code>\n"
+        f"• <b>Baterai Daya:</b> <code>{battery_label}</code>\n"
+        f"• <b>RAM:</b> <code>{ram_label}</code>\n"
+        f"• <b>Internal:</b> <code>{internal_label}</code>"
         f"</blockquote>"
     )
     send_telegram_message(
@@ -852,7 +973,7 @@ def handle_menu_action(
     elif action_key == "guide":
         send_vortex_guide(chat_id, sender_name, state, reply_to_message_id=reply_to_message_id)
     elif action_key == "status":
-        send_bot_status(chat_id, state, end_time, reply_to_message_id=reply_to_message_id)
+        send_bot_status(chat_id, sender_name, end_time, reply_to_message_id=reply_to_message_id)
     elif action_key == "roast":
         roast_reply, _ = ask_groq(
             "Roast gua dong dengan menggurui, sarkas, dan lucu.",
@@ -958,6 +1079,10 @@ def poll_once(current_offset: int | None, state: dict, end_time: float) -> int |
 
         if not has_photo and text.strip().startswith("/forex"):
             send_forex_mini_app(chat_id, sender_name, state, reply_to_message_id=message_id)
+            continue
+
+        if not has_photo and text.strip().startswith("/status"):
+            send_bot_status(chat_id, sender_name, end_time, reply_to_message_id=message_id)
             continue
 
         if not has_photo and (text.strip().startswith("/start") or text.strip().startswith("/menu")):
@@ -1153,7 +1278,7 @@ def main() -> None:
     end_time = start_time + RUN_DURATION_SECONDS
     current_offset = load_last_offset()
 
-    print("Bot aktif! Mode siaga selama 1 jam...", flush=True)
+    print("Bot aktif! Mode siaga berjalan...", flush=True)
 
     while time.monotonic() < end_time:
         try:
@@ -1166,7 +1291,7 @@ def main() -> None:
             break
         time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
 
-    print("Sesi 1 jam selesai.", flush=True)
+    print("Sesi selesai.", flush=True)
 
 
 if __name__ == "__main__":
