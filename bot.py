@@ -148,7 +148,7 @@ FALLBACK_ANGRY_REPLIES = [
 ]
 
 OFFSET_FILE = "last_offset.json"
-RUN_DURATION_SECONDS = 6 * 60 * 60  # 1 jam = 3.600 detik
+RUN_DURATION_SECONDS = 0 * 60 * 60  # 1 jam = 3.600 detik
 POLL_INTERVAL_SECONDS = 5          # jeda cek pesan baru (detik)
 
 SYSTEM_PROMPT = """Kamu adalah asisten AI bot Telegram berbahasa Indonesia gaul-natural yang MARAH-MARAH, SARKAS, MENGGURUI, CERDAS, dan LUCU.
@@ -1153,7 +1153,7 @@ def main() -> None:
     end_time = start_time + RUN_DURATION_SECONDS
     current_offset = load_last_offset()
 
-    print("Bot aktif! Mode siaga selama 6 jam...", flush=True)
+    print("Bot aktif! Mode siaga selama 1 jam...", flush=True)
 
     while time.monotonic() < end_time:
         try:
@@ -1166,7 +1166,7 @@ def main() -> None:
             break
         time.sleep(min(POLL_INTERVAL_SECONDS, remaining))
 
-    print("Sesi 6 jam selesai.", flush=True)
+    print("Sesi 1 jam selesai.", flush=True)
 
 
 if __name__ == "__main__":
