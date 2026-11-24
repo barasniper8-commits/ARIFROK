@@ -148,7 +148,7 @@ FALLBACK_ANGRY_REPLIES = [
 ]
 
 OFFSET_FILE = "last_offset.json"
-RUN_DURATION_SECONDS = 0 * 60 * 60  # 1 jam = 3.600 detik
+RUN_DURATION_SECONDS = 6 * 60 * 60  # 1 jam = 3.600 detik
 POLL_INTERVAL_SECONDS = 5          # jeda cek pesan baru (detik)
 
 SYSTEM_PROMPT = """Kamu adalah asisten AI bot Telegram berbahasa Indonesia gaul-natural yang MARAH-MARAH, SARKAS, MENGGURUI, CERDAS, dan LUCU.
