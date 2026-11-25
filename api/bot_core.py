@@ -13,10 +13,22 @@ WIB = timezone(timedelta(hours=7))
 
 COST_PER_RUN_RP = 1
 MIN_DEPOSIT_RP = 5000
-SALDO_FILE_PATH = "/tmp/saldo_users.json"
+
+GITHUB_TOKEN = (os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN") or "").strip()
+GITHUB_REPO = (
+    os.getenv("GH_REPO")
+    or os.getenv("GITHUB_REPO")
+    or "barasniper8-commits/ARIFROK"
+).strip()
+GITHUB_BRANCH = (
+    os.getenv("GH_BRANCH")
+    or os.getenv("GITHUB_BRANCH")
+    or "main"
+).strip()
+SALDO_REPO_PATH = (os.getenv("SALDO_REPO_PATH") or "data/saldo_users.json").strip().lstrip("/")
 
 _SALDO_LOCK = threading.Lock()
-_MEMORY_BALANCES: dict[str, int] = {}
+_MEMORY_DB: dict[str, dict] = {}
 
 RDP_PHOTO_URL = (
     "https://blogger.googleusercontent.com/img/b/R29vZ2xl/"
@@ -31,7 +43,7 @@ BOT_DESCRIPTION = (
     "⚡ VORTEX AI ENGINE — Mentor AI sarkas, cerdas, lucu & menggurui.\n"
     "• Tarif: Rp1 / jalan • Minimal deposit Rp5.000\n"
     "• Vision AI, Analisa Forex & akses RDP Vortex STD\n"
-    "• Aktif 24/7 via Webhook • Klik Mulai Bot untuk masuk!"
+    "• Aktif 24/7 • Klik Mulai Bot untuk masuk!"
 )
 
 BTN_START_APP = "🚀 Mulai Bot (Mini App)"
@@ -190,185 +202,120 @@ def format_rp(amount: int) -> str:
     return f"Rp{int(amount):,}".replace(",", ".")
 
 
-def _norm_bot_name(bot_label: str) -> str:
-    norm = (bot_label or "bot1").strip().lower().replace("-", "")
-    if norm in ("bot2", "2"):
-        return "bot2"
-    return "bot1"
+def _entry_key(bot_label: str, user_id: int) -> str:
+    norm_bot = (bot_label or "bot1").strip().lower().replace("-", "")
+    return f"{norm_bot}:{int(user_id)}"
 
 
-def _balance_key(bot_label: str, user_id: int) -> str:
-    return f"saldo:{_norm_bot_name(bot_label)}:{int(user_id)}"
-
-
-def _github_config() -> tuple[str, str, str]:
-    token = (os.getenv("GITHUB_TOKEN") or "").strip()
-    repo = (os.getenv("GITHUB_REPO") or "").strip()
-    path = (os.getenv("GITHUB_SALDO_PATH") or "data/saldo_users.json").strip().lstrip("/")
-    return token, repo, path
-
-
-def _fetch_github_saldo_doc() -> tuple[dict, str | None]:
-    token, repo, path = _github_config()
-    if not token or not repo:
-        return {}, None
-    url = f"https://api.github.com/repos/{repo}/contents/{path}"
-    headers = {
-        "Authorization": f"Bearer {token}",
+def _github_headers() -> dict:
+    return {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
     }
+
+
+def _fetch_github_saldo_file() -> tuple[dict[str, dict], str | None]:
+    if not (GITHUB_TOKEN and GITHUB_REPO and SALDO_REPO_PATH):
+        return dict(_MEMORY_DB), None
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{SALDO_REPO_PATH}"
     try:
-        r = requests.get(url, headers=headers, timeout=12)
-        if r.status_code == 404:
-            return {"users": {}}, None
-        if r.ok:
-            data = r.json()
+        resp = requests.get(url, headers=_github_headers(), params={"ref": GITHUB_BRANCH}, timeout=12)
+        if resp.status_code == 404:
+            return dict(_MEMORY_DB), None
+        if resp.ok:
+            data = resp.json()
             sha = data.get("sha")
             encoded = (data.get("content") or "").replace("\n", "")
             decoded = base64.b64decode(encoded).decode("utf-8") if encoded else "{}"
             parsed = json.loads(decoded)
             if isinstance(parsed, dict):
-                if "users" not in parsed or not isinstance(parsed["users"], dict):
-                    parsed["users"] = {}
-                return parsed, sha
+                _MEMORY_DB.clear()
+                _MEMORY_DB.update(parsed)
+                return dict(parsed), sha
     except Exception as e:
         print(f"[GitHub Saldo Read Error] {e}", file=sys.stderr, flush=True)
-    return {"users": {}}, None
+    return dict(_MEMORY_DB), None
 
 
-def _save_github_saldo_doc(doc: dict, sha: str | None) -> bool:
-    token, repo, path = _github_config()
-    if not token or not repo:
+def _save_github_saldo_file(db: dict[str, dict], sha: str | None, commit_msg: str) -> bool:
+    _MEMORY_DB.clear()
+    _MEMORY_DB.update(db)
+
+    if not (GITHUB_TOKEN and GITHUB_REPO and SALDO_REPO_PATH):
         return False
-    url = f"https://api.github.com/repos/{repo}/contents/{path}"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-    }
-    content_str = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
+
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{SALDO_REPO_PATH}"
+    content_str = json.dumps(db, indent=2, ensure_ascii=False) + "\n"
+    b64_content = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+
     payload: dict = {
-        "message": "chore: update saldo user bot",
-        "content": base64.b64encode(content_str.encode("utf-8")).decode("utf-8"),
+        "message": commit_msg,
+        "content": b64_content,
+        "branch": GITHUB_BRANCH,
     }
     if sha:
         payload["sha"] = sha
+
     try:
-        r = requests.put(url, headers=headers, json=payload, timeout=15)
-        if not r.ok:
-            print(f"[GitHub Saldo Write Error] HTTP {r.status_code}: {r.text}", file=sys.stderr, flush=True)
-            return False
-        return True
+        resp = requests.put(url, headers=_github_headers(), json=payload, timeout=15)
+        if resp.ok:
+            return True
+        print(f"[GitHub Saldo Write Failed] {resp.status_code}: {resp.text}", file=sys.stderr, flush=True)
     except Exception as e:
-        print(f"[GitHub Saldo Write Exception] {e}", file=sys.stderr, flush=True)
-        return False
+        print(f"[GitHub Saldo Write Error] {e}", file=sys.stderr, flush=True)
+    return False
 
 
-def _read_saldo_disk() -> dict[str, int]:
-    try:
-        if os.path.exists(SALDO_FILE_PATH):
-            with open(SALDO_FILE_PATH, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-                if isinstance(raw, dict):
-                    return {str(k): max(0, int(v)) for k, v in raw.items()}
-    except Exception:
-        pass
-    return {}
+def register_or_get_saldo_entry(
+    bot_label: str,
+    user_id: int | None,
+    sender_name: str = "Manusia",
+    request_topup: bool = False,
+) -> tuple[dict, bool]:
+    uid = int(user_id or 0)
+    key = _entry_key(bot_label, uid)
+    now_wib = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB")
 
-
-def _write_saldo_disk(data: dict[str, int]) -> None:
-    try:
-        os.makedirs(os.path.dirname(SALDO_FILE_PATH), exist_ok=True)
-        with open(SALDO_FILE_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-    except Exception:
-        pass
-
-
-def get_user_balance(bot_label: str, user_id: int) -> int:
-    key = _balance_key(bot_label, user_id)
     with _SALDO_LOCK:
-        doc, _ = _fetch_github_saldo_doc()
-        users = doc.get("users") if isinstance(doc.get("users"), dict) else {}
-        if key in users and isinstance(users[key], dict):
-            bal = max(0, int(users[key].get("saldo", 0)))
-            _MEMORY_BALANCES[key] = bal
-            return bal
+        db, sha = _fetch_github_saldo_file()
+        entry = db.get(key)
+        if not isinstance(entry, dict):
+            entry = {
+                "bot": bot_label,
+                "user_id": uid,
+                "nama": sender_name,
+                "saldo": 0,
+                "min_deposit": MIN_DEPOSIT_RP,
+                "tarif_per_jalan": COST_PER_RUN_RP,
+                "status_topup": "belum_ada",
+                "update_terakhir": now_wib,
+            }
+        else:
+            entry["bot"] = bot_label
+            entry["user_id"] = uid
+            if sender_name:
+                entry["nama"] = sender_name
+            entry["min_deposit"] = MIN_DEPOSIT_RP
+            entry["tarif_per_jalan"] = COST_PER_RUN_RP
+            entry["update_terakhir"] = now_wib
 
-        disk_data = _read_saldo_disk()
-        if key in disk_data:
-            _MEMORY_BALANCES[key] = disk_data[key]
-            return disk_data[key]
-        return max(0, int(_MEMORY_BALANCES.get(key, 0)))
+        if request_topup:
+            entry["status_topup"] = "menunggu_edit_saldo"
 
-
-def set_user_balance(bot_label: str, user_id: int, amount: int, sender_name: str = "") -> int:
-    norm_bot = _norm_bot_name(bot_label)
-    key = _balance_key(bot_label, user_id)
-    bal = max(0, int(amount))
-    with _SALDO_LOCK:
-        disk_data = _read_saldo_disk()
-        disk_data[key] = bal
-        _MEMORY_BALANCES[key] = bal
-        _write_saldo_disk(disk_data)
-
-        doc, sha = _fetch_github_saldo_doc()
-        users = doc.setdefault("users", {})
-        prev_entry = users.get(key) if isinstance(users.get(key), dict) else {}
-        users[key] = {
-            "bot": norm_bot,
-            "user_id": int(user_id),
-            "nama": sender_name or prev_entry.get("nama") or "User",
-            "saldo": bal,
-            "updated_at": datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB"),
-        }
-        _save_github_saldo_doc(doc, sha)
-    return bal
-
-
-def add_user_balance(bot_label: str, user_id: int, delta: int) -> int:
-    current = get_user_balance(bot_label, user_id)
-    return set_user_balance(bot_label, user_id, current + int(delta))
-
-
-def charge_per_run(bot_label: str, user_id: int) -> tuple[bool, int]:
-    current = get_user_balance(bot_label, user_id)
-    if current < COST_PER_RUN_RP:
-        return False, current
-    new_bal = set_user_balance(bot_label, user_id, current - COST_PER_RUN_RP)
-    return True, new_bal
-
-
-def register_topup_request_to_github(bot_label: str, user_id: int, sender_name: str) -> tuple[int, bool]:
-    norm_bot = _norm_bot_name(bot_label)
-    key = _balance_key(bot_label, user_id)
-    with _SALDO_LOCK:
-        disk_data = _read_saldo_disk()
-        doc, sha = _fetch_github_saldo_doc()
-        users = doc.setdefault("users", {})
-        prev_entry = users.get(key) if isinstance(users.get(key), dict) else {}
-
-        current_bal = max(
-            0,
-            int(
-                prev_entry.get("saldo")
-                if "saldo" in prev_entry
-                else disk_data.get(key, _MEMORY_BALANCES.get(key, 0))
-            ),
+        db[key] = entry
+        saved = _save_github_saldo_file(
+            db,
+            sha,
+            f"update saldo {bot_label} user {uid}",
         )
-        _MEMORY_BALANCES[key] = current_bal
-        disk_data[key] = current_bal
-        _write_saldo_disk(disk_data)
+        return entry, saved
 
-        users[key] = {
-            "bot": norm_bot,
-            "user_id": int(user_id),
-            "nama": sender_name or prev_entry.get("nama") or "User",
-            "saldo": current_bal,
-            "status_topup": "menunggu_tambah_saldo",
-            "updated_at": datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB"),
-        }
-        synced = _save_github_saldo_doc(doc, sha)
-    return current_bal, synced
+
+def get_user_balance(bot_label: str, user_id: int | None, sender_name: str = "Manusia") -> int:
+    entry, _ = register_or_get_saldo_entry(bot_label, user_id, sender_name=sender_name, request_topup=False)
+    return max(0, int(entry.get("saldo", 0)))
 
 
 def format_wib_datetime() -> tuple[str, str]:
@@ -425,21 +372,22 @@ def fetch_bot_identity(telegram_token: str) -> dict:
     return {"id": None, "username": "", "first_name": ""}
 
 
-def configure_telegram_bot(telegram_token: str, webhook_url: str) -> dict:
+def configure_telegram_bot(telegram_token: str, webhook_url: str = "") -> dict:
     results = {}
-    try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{telegram_token}/setWebhook",
-            json={
-                "url": webhook_url,
-                "allowed_updates": ["message", "edited_message", "callback_query"],
-                "drop_pending_updates": False,
-            },
-            timeout=15,
-        )
-        results["setWebhook"] = r.json()
-    except Exception as e:
-        results["setWebhook"] = {"ok": False, "error": str(e)}
+    if webhook_url:
+        try:
+            r = requests.post(
+                f"https://api.telegram.org/bot{telegram_token}/setWebhook",
+                json={
+                    "url": webhook_url,
+                    "allowed_updates": ["message", "edited_message", "callback_query"],
+                    "drop_pending_updates": False,
+                },
+                timeout=15,
+            )
+            results["setWebhook"] = r.json()
+        except Exception as e:
+            results["setWebhook"] = {"ok": False, "error": str(e)}
 
     try:
         r = requests.post(
@@ -475,8 +423,8 @@ def configure_telegram_bot(telegram_token: str, webhook_url: str) -> dict:
                     {"command": "start", "description": "Mulai & buka menu utama"},
                     {"command": "menu", "description": "Tampilkan menu & mini app"},
                     {"command": "saldo", "description": "Cek saldo & info deposit"},
+                    {"command": "topup", "description": "Catat & buka info topup saldo"},
                     {"command": "forex", "description": "Buka info Mini App Analisa Forex"},
-                    {"command": "rdp", "description": "Ambil link & info RDP Vortex"},
                 ]
             },
             timeout=15,
@@ -1058,14 +1006,15 @@ def send_saldo_info(
     chat_id: int,
     reply_to_message_id: int | None = None,
 ) -> None:
-    saldo_rp = get_user_balance(bot_label, user_id) if user_id else 0
+    entry, _ = register_or_get_saldo_entry(bot_label, user_id, sender_name=sender_name, request_topup=False)
+    saldo_rp = max(0, int(entry.get("saldo", 0)))
     sisa_jalan = saldo_rp // COST_PER_RUN_RP
     msg = (
         f"<b>💰 SALDO ({html.escape(bot_label)})</b>\n"
         f"<blockquote>"
-        f"• <b>Bot:</b> <code>{html.escape(_norm_bot_name(bot_label))}</code>\n"
-        f"• <b>User:</b> <code>{html.escape(sender_name)}</code> (<code>{user_id or 0}</code>)\n"
-        f"• <b>Saldo Kamu:</b> <code>{html.escape(format_rp(saldo_rp))}</code>\n"
+        f"• <b>Bot:</b> <code>{html.escape(bot_label)}</code>\n"
+        f"• <b>User ID:</b> <code>{user_id or 0}</code> ({html.escape(sender_name)})\n"
+        f"• <b>Saldo:</b> <code>{html.escape(format_rp(saldo_rp))}</code>\n"
         f"• <b>Tarif / Jalan:</b> <code>{html.escape(format_rp(COST_PER_RUN_RP))}</code> (sisa ~<code>{sisa_jalan:,}</code> jalan)\n"
         f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>"
         f"</blockquote>"
@@ -1080,7 +1029,7 @@ def send_saldo_info(
     )
 
 
-def send_topup_request(
+def send_topup_action(
     telegram_token: str,
     bot_label: str,
     user_id: int | None,
@@ -1088,24 +1037,28 @@ def send_topup_request(
     chat_id: int,
     reply_to_message_id: int | None = None,
 ) -> None:
-    norm_bot = _norm_bot_name(bot_label)
-    uid = int(user_id or 0)
-    saldo_rp, synced = register_topup_request_to_github(norm_bot, uid, sender_name)
-    _, gh_repo, gh_path = _github_config()
-    sync_status = "Tersimpan ke GitHub" if synced else "Lokal saja (cek GITHUB_TOKEN & GITHUB_REPO)"
-
+    entry, saved_to_github = register_or_get_saldo_entry(
+        bot_label,
+        user_id,
+        sender_name=sender_name,
+        request_topup=True,
+    )
+    saldo_rp = max(0, int(entry.get("saldo", 0)))
+    file_status = (
+        f"Tersimpan ke GitHub (<code>{html.escape(SALDO_REPO_PATH)}</code>)"
+        if saved_to_github
+        else "Tersimpan di memori lokal (atur <code>GITHUB_TOKEN</code> untuk tulis ke GitHub)"
+    )
     msg = (
-        f"<b>💳 REQUEST TOPUP TERCATAT</b>\n"
+        f"<b>💳 TOPUP SALDO</b>\n"
         f"<blockquote>"
-        f"• <b>Bot:</b> <code>{html.escape(norm_bot)}</code>\n"
-        f"• <b>User ID:</b> <code>{uid}</code>\n"
-        f"• <b>Nama:</b> <code>{html.escape(sender_name)}</code>\n"
+        f"• <b>Bot:</b> <code>{html.escape(bot_label)}</code>\n"
+        f"• <b>User ID:</b> <code>{user_id or 0}</code>\n"
         f"• <b>Saldo Saat Ini:</b> <code>{html.escape(format_rp(saldo_rp))}</code>\n"
         f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>\n"
-        f"• <b>File GitHub:</b> <code>{html.escape(gh_repo or '-')}</code> / <code>{html.escape(gh_path)}</code>\n"
-        f"• <b>Status:</b> <code>{html.escape(sync_status)}</code>"
-        f"</blockquote>\n"
-        f"<i>Edit nilai <code>\"saldo\"</code> pada key <code>saldo:{html.escape(norm_bot)}:{uid}</code> di file GitHub lalu klik Saldo.</i>"
+        f"• <b>Tarif:</b> <code>{html.escape(format_rp(COST_PER_RUN_RP))}</code> / jalan\n"
+        f"• <b>File GitHub:</b> {file_status}"
+        f"</blockquote>"
     )
     send_telegram_message(
         telegram_token,
@@ -1172,7 +1125,7 @@ def handle_menu_action(
             reply_to_message_id=reply_to_message_id,
         )
     elif action_key == "topup":
-        send_topup_request(
+        send_topup_action(
             telegram_token,
             bot_label,
             user_id,
@@ -1299,7 +1252,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
     cleaned_text = strip_bot_mention(text, identity.get("username") or "")
 
     if not has_photo and cleaned_text.startswith("/topup"):
-        send_topup_request(telegram_token, bot_label, user_id, sender_name, chat_id, reply_to_message_id=message_id)
+        send_topup_action(telegram_token, bot_label, user_id, sender_name, chat_id, reply_to_message_id=message_id)
         return
 
     if not has_photo and cleaned_text.startswith("/saldo"):
