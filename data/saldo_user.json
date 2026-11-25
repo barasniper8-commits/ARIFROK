@@ -6,8 +6,8 @@
     "saldo": 4997,
     "min_deposit": 5000,
     "tarif_per_jalan": 1,
-    "status_topup": "selesai",
-    "update_terakhir": "2026-11-26 03:14:10 WIB"
+    "status_topup": "menunggu_edit_saldo",
+    "update_terakhir": "2026-11-26 03:14:19 WIB"
   },
   "bot2:0": {
     "bot": "Bot-2",
