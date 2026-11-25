@@ -19,7 +19,7 @@ BOT_INSTANCES = [
         ),
         "groq_api_key": os.getenv(
             "GROQ_API_KEY_1",
-            os.getenv("GROQ_API_KEY", "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"),
+            os.getenv("GROQ_API_KEY", "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"),
         ),
     },
     {
