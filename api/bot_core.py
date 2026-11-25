@@ -272,8 +272,61 @@ def configure_telegram_bot(telegram_token: str, webhook_url: str) -> dict:
     return results
 
 
-def get_remove_keyboard() -> dict:
+def get_remove_reply_keyboard() -> dict:
+    # Menghapus / menyembunyikan tombol keyboard di bawah kolom kirim pesan
     return {"remove_keyboard": True}
+
+
+def get_reply_action_inline_keyboard() -> dict:
+    # Tombol menu yang menempel di atas (pada pesan jawaban bot)
+    return {
+        "inline_keyboard": [
+            [{"text": "🚀 Mulai Bot (Mini App)", "web_app": {"url": START_MINI_APP_URL}}],
+            [
+                {"text": "📈 Analisa Forex", "web_app": {"url": FOREX_MINI_APP_URL}},
+                {"text": "⚡ RDP Vortex", "callback_data": "menu_rdp"},
+            ],
+            [
+                {"text": "📖 Cara Pakai Vortex", "callback_data": "menu_guide"},
+                {"text": "🔥 Roast Gua", "callback_data": "menu_roast"},
+            ],
+            [{"text": "📊 Status Bot", "callback_data": "menu_status"}],
+        ]
+    }
+
+
+def get_start_inline_keyboard() -> dict:
+    return {
+        "inline_keyboard": [
+            [{"text": "BOT ON/OFF", "web_app": {"url": START_MINI_APP_URL}}],
+            [{"text": "📈 RDP VORTEX STD", "web_app": {"url": FOREX_MINI_APP_URL}}],
+            [
+                {"text": "💾 DOWNLOAD RDP VORTEX", "callback_data": "menu_rdp"},
+                {"text": "📖 Panduan Vortex", "callback_data": "menu_guide"},
+            ],
+            [
+                {"text": "⏱️ Status Bot", "callback_data": "menu_status"},
+            ],
+        ]
+    }
+
+
+def get_forex_inline_keyboard() -> dict:
+    return {
+        "inline_keyboard": [
+            [{"text": "📈 Launch Analisa Forex Mini App", "web_app": {"url": FOREX_MINI_APP_URL}}],
+            [{"text": "🔗 Buka di Browser", "url": FOREX_MINI_APP_URL}],
+        ]
+    }
+
+
+def get_rdp_inline_keyboard() -> dict:
+    return {
+        "inline_keyboard": [
+            [{"text": "📥 Buka Link File RDP", "url": RDP_APP_LINK}],
+            [{"text": "📖 Cara Pakai Vortex STD", "callback_data": "menu_guide"}],
+        ]
+    }
 
 
 def format_styled_reply(badge: str, body_text: str) -> str:
@@ -653,16 +706,16 @@ def send_forex_mini_app(
             "buka mini app analisa forex",
             sender_name,
             chat_model,
-            extra_instruction="Gurui user dengan sarkas dan lucu agar analisa dulu sebelum entry lewat Mini App. Maksimal 22 kata.",
+            extra_instruction="Gurui user dengan sarkas dan lucu agar analisa dulu sebelum entry lewat Mini App di tombol bawah. Maksimal 22 kata.",
             max_words=22,
             max_tokens=256,
             force_angry=False,
         )
     except Exception:
-        note = "Analisa dulu sebelum entry; trading itu hitung risiko, bukan judi nasib."
+        note = "Buka Mini App di bawah dan analisa dulu; trading itu hitung risiko, bukan judi nasib."
 
     msg = (
-        f"<b>📈 ANALISA FOREX</b>\n"
+        f"<b>📈 ANALISA FOREX MINI APP</b>\n"
         f"<blockquote>{html.escape(note)}</blockquote>\n"
         f"🔗 <b>URL:</b> <code>{html.escape(FOREX_MINI_APP_URL)}</code>"
     )
@@ -672,7 +725,7 @@ def send_forex_mini_app(
         msg,
         reply_to_message_id=reply_to_message_id,
         parse_mode="HTML",
-        reply_markup=None,
+        reply_markup=get_forex_inline_keyboard(),
     )
 
 
@@ -687,8 +740,8 @@ def send_rdp_package(
 ) -> None:
     angry = is_angry_trigger(user_text)
     rdp_instruction = (
-        "Gurui user dengan sarkas dan lucu bahwa file/akses RDP Vortex ada di link teks pesan ini, "
-        "jangan malas baca dan jangan asal pakai. Maksimal 18 kata. Jangan bilang 'di inbox'."
+        "Gurui user dengan sarkas dan lucu bahwa file/akses RDP Vortex ada di link bawah, "
+        "jangan malas baca dan jangan asal pakai. Maksimal 18 kata. Jangan bilang 'di inbox' dan jangan tulis URL."
     )
     try:
         intro_line, _ = ask_groq(
@@ -703,9 +756,9 @@ def send_rdp_package(
         )
     except Exception:
         intro_line = (
-            "Ambil di link teks ini, bangsat, baca panduannya, jangan asal klik, anjing!"
+            "Ambil di link bawah, bangsat, baca panduannya, jangan asal klik, anjing!"
             if angry
-            else "Ambil di link teks ini; biasakan baca panduan dulu biar nggak bingung sendiri."
+            else "Ambil di link bawah; biasakan baca panduan dulu biar nggak bingung sendiri."
         )
 
     final_caption = (
@@ -721,7 +774,7 @@ def send_rdp_package(
             final_caption,
             reply_to_message_id=reply_to_message_id,
             parse_mode="HTML",
-            reply_markup=None,
+            reply_markup=get_rdp_inline_keyboard(),
         )
     except Exception:
         send_telegram_message(
@@ -730,7 +783,7 @@ def send_rdp_package(
             final_caption,
             reply_to_message_id=reply_to_message_id,
             parse_mode="HTML",
-            reply_markup=None,
+            reply_markup=get_rdp_inline_keyboard(),
         )
 
 
@@ -746,8 +799,6 @@ def handle_menu_action(
     is_group: bool = False,
 ) -> None:
     chat_model = models["chat_model"]
-    rm_kb = None if is_group else get_remove_keyboard()
-
     if action_key == "forex":
         send_forex_mini_app(telegram_token, groq_api_key, chat_id, sender_name, chat_model, reply_to_message_id=reply_to_message_id)
     elif action_key == "rdp":
@@ -776,7 +827,7 @@ def handle_menu_action(
             format_styled_reply("PANDUAN VORTEX STD", guide_reply),
             reply_to_message_id=reply_to_message_id,
             parse_mode="HTML",
-            reply_markup=rm_kb,
+            reply_markup=get_reply_action_inline_keyboard(),
         )
     elif action_key == "status":
         vis_m = html.escape(str(models.get("vision_model") or "Tidak tersedia"))
@@ -794,7 +845,7 @@ def handle_menu_action(
             msg,
             reply_to_message_id=reply_to_message_id,
             parse_mode="HTML",
-            reply_markup=rm_kb,
+            reply_markup=get_reply_action_inline_keyboard(),
         )
     elif action_key == "roast":
         roast_reply, _ = ask_groq(
@@ -813,7 +864,7 @@ def handle_menu_action(
             format_styled_reply("ROASTING MODE", roast_reply),
             reply_to_message_id=reply_to_message_id,
             parse_mode="HTML",
-            reply_markup=rm_kb,
+            reply_markup=get_reply_action_inline_keyboard(),
         )
 
 
@@ -827,8 +878,35 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
     callback = upd.get("callback_query")
     if callback:
         cb_id = callback.get("id")
+        cb_data = (callback.get("data") or "").strip()
+        cb_msg = callback.get("message") or {}
+        cb_chat = cb_msg.get("chat") or {}
+        cb_chat_id = cb_chat.get("id")
+        cb_is_group = cb_chat.get("type") in ("group", "supergroup")
+        cb_user = callback.get("from") or {}
+        cb_sender = cb_user.get("first_name") or cb_user.get("username") or "Manusia"
+
         if cb_id:
-            answer_callback_query(telegram_token, cb_id, "Siap!")
+            answer_callback_query(telegram_token, cb_id, "Diproses...")
+
+        action_map = {
+            "menu_forex": "forex",
+            "menu_rdp": "rdp",
+            "menu_guide": "guide",
+            "menu_status": "status",
+            "menu_roast": "roast",
+        }
+        if cb_chat_id and cb_data in action_map:
+            handle_menu_action(
+                telegram_token,
+                groq_api_key,
+                bot_label,
+                models,
+                action_map[cb_data],
+                cb_chat_id,
+                cb_sender,
+                is_group=cb_is_group,
+            )
         return
 
     message = upd.get("message") or upd.get("edited_message")
@@ -867,7 +945,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             format_styled_reply("MINI APP DATA", ai_resp),
             reply_to_message_id=message_id,
             parse_mode="HTML",
-            reply_markup=None if is_group else get_remove_keyboard(),
+            reply_markup=get_reply_action_inline_keyboard(),
         )
         return
 
@@ -894,8 +972,21 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         styled_welcome = (
             f"<b>⚡ AI BOT READY</b>\n"
             f"<blockquote>{html.escape(welcome_text)}</blockquote>\n"
-            f"<i>Ketik /forex, /rdp, atau langsung tanya apa saja.</i>"
+            f"<i>Pilih menu pada pesan di atas atau ketik pertanyaan.</i>"
         )
+
+        # Hapus reply keyboard lama di bawah saat /start atau /menu
+        if not is_group:
+            try:
+                send_telegram_message(
+                    telegram_token,
+                    chat_id,
+                    "Menu bawah dihapus, tombol menu sekarang menempel di pesan bot.",
+                    parse_mode=None,
+                    reply_markup=get_remove_reply_keyboard(),
+                )
+            except Exception:
+                pass
 
         sent_combined_photo = False
         if profile_photo:
@@ -909,7 +1000,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
                     caption=styled_welcome,
                     reply_to_message_id=message_id,
                     parse_mode="HTML",
-                    reply_markup=None,
+                    reply_markup=get_start_inline_keyboard(),
                 )
                 sent_combined_photo = True
             except Exception:
@@ -922,7 +1013,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
                 styled_welcome,
                 reply_to_message_id=message_id,
                 parse_mode="HTML",
-                reply_markup=None if is_group else get_remove_keyboard(),
+                reply_markup=get_start_inline_keyboard(),
             )
         return
 
@@ -992,7 +1083,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             format_styled_reply(badge, reply_text),
             reply_to_message_id=message_id,
             parse_mode="HTML",
-            reply_markup=None,
+            reply_markup=get_reply_action_inline_keyboard(),
         )
     except Exception:
         send_telegram_message(
