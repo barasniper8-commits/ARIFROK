@@ -5,6 +5,14 @@ import random
 import re
 import sys
 import requests
+import os
+import requests
+
+APIPEDIA_TOKEN = os.getenv(
+    "APIPEDIA_TOKEN_",
+    os.getenv("YT_MP3_API_TOKEN_", ""),
+).strip()
+
 
 RDP_PHOTO_URL = (
     "https://blogger.googleusercontent.com/img/b/R29vZ2xl/"
