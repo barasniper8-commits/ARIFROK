@@ -2,12 +2,21 @@ import base64
 from datetime import datetime, timedelta, timezone
 import html
 import json
+import os
 import random
 import re
 import sys
+import threading
 import requests
 
 WIB = timezone(timedelta(hours=7))
+
+COST_PER_RUN_RP = 1
+MIN_DEPOSIT_RP = 5000
+SALDO_FILE_PATH = "/tmp/saldo_users.json"
+
+_SALDO_LOCK = threading.Lock()
+_MEMORY_BALANCES: dict[str, int] = {}
 
 RDP_PHOTO_URL = (
     "https://blogger.googleusercontent.com/img/b/R29vZ2xl/"
@@ -20,8 +29,8 @@ FOREX_MINI_APP_URL = "https://arianto12.lynk.id/p/analisa-forex"
 
 BOT_DESCRIPTION = (
     "⚡ VORTEX AI ENGINE — Mentor AI sarkas, cerdas, lucu & menggurui.\n"
-    "• Vision AI: analisis foto & caption otomatis\n"
-    "• Trading & Mini App: Analisa Forex & akses RDP Vortex STD\n"
+    "• Tarif: Rp1 / jalan • Minimal deposit Rp5.000\n"
+    "• Vision AI, Analisa Forex & akses RDP Vortex STD\n"
     "• Aktif 24/7 via Webhook • Klik Mulai Bot untuk masuk!"
 )
 
@@ -30,7 +39,7 @@ BTN_FOREX = "📈 Analisa Forex"
 BTN_RDP = "⚡ RDP Vortex"
 BTN_GUIDE = "📖 Cara Pakai Vortex"
 BTN_ROAST = "🔥 Roast Gua"
-BTN_STATUS = "📊 Status Bot"
+BTN_SALDO = "💰 Saldo"
 BTN_TIME = "🕒 Jam & Tanggal"
 
 RDP_KEYWORDS = (
@@ -176,6 +185,83 @@ BULAN_ID = (
 )
 
 
+def format_rp(amount: int) -> str:
+    return f"Rp{int(amount):,}".replace(",", ".")
+
+
+def _balance_key(bot_label: str, user_id: int) -> str:
+    norm_bot = (bot_label or "bot1").strip().lower().replace("-", "")
+    return f"saldo:{norm_bot}:{int(user_id)}"
+
+
+def _read_saldo_disk() -> dict[str, int]:
+    try:
+        if os.path.exists(SALDO_FILE_PATH):
+            with open(SALDO_FILE_PATH, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+                if isinstance(raw, dict):
+                    return {str(k): max(0, int(v)) for k, v in raw.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _write_saldo_disk(data: dict[str, int]) -> None:
+    try:
+        os.makedirs(os.path.dirname(SALDO_FILE_PATH), exist_ok=True)
+        with open(SALDO_FILE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+
+def get_user_balance(bot_label: str, user_id: int) -> int:
+    key = _balance_key(bot_label, user_id)
+    with _SALDO_LOCK:
+        disk_data = _read_saldo_disk()
+        if key in disk_data:
+            _MEMORY_BALANCES[key] = disk_data[key]
+            return disk_data[key]
+        return max(0, int(_MEMORY_BALANCES.get(key, 0)))
+
+
+def set_user_balance(bot_label: str, user_id: int, amount: int) -> int:
+    key = _balance_key(bot_label, user_id)
+    bal = max(0, int(amount))
+    with _SALDO_LOCK:
+        disk_data = _read_saldo_disk()
+        disk_data[key] = bal
+        _MEMORY_BALANCES[key] = bal
+        _write_saldo_disk(disk_data)
+    return bal
+
+
+def add_user_balance(bot_label: str, user_id: int, delta: int) -> int:
+    key = _balance_key(bot_label, user_id)
+    with _SALDO_LOCK:
+        disk_data = _read_saldo_disk()
+        current = disk_data.get(key, _MEMORY_BALANCES.get(key, 0))
+        bal = max(0, int(current) + int(delta))
+        disk_data[key] = bal
+        _MEMORY_BALANCES[key] = bal
+        _write_saldo_disk(disk_data)
+    return bal
+
+
+def charge_per_run(bot_label: str, user_id: int) -> tuple[bool, int]:
+    key = _balance_key(bot_label, user_id)
+    with _SALDO_LOCK:
+        disk_data = _read_saldo_disk()
+        current = max(0, int(disk_data.get(key, _MEMORY_BALANCES.get(key, 0))))
+        if current < COST_PER_RUN_RP:
+            return False, current
+        new_bal = current - COST_PER_RUN_RP
+        disk_data[key] = new_bal
+        _MEMORY_BALANCES[key] = new_bal
+        _write_saldo_disk(disk_data)
+    return True, new_bal
+
+
 def format_wib_datetime() -> tuple[str, str]:
     now = datetime.now(WIB)
     hari = HARI_ID[now.weekday()]
@@ -279,9 +365,9 @@ def configure_telegram_bot(telegram_token: str, webhook_url: str) -> dict:
                 "commands": [
                     {"command": "start", "description": "Mulai & buka menu utama"},
                     {"command": "menu", "description": "Tampilkan menu & mini app"},
+                    {"command": "saldo", "description": "Cek saldo & info deposit"},
                     {"command": "forex", "description": "Buka info Mini App Analisa Forex"},
                     {"command": "rdp", "description": "Ambil link & info RDP Vortex"},
-                    {"command": "status", "description": "Cek model bot"},
                 ]
             },
             timeout=15,
@@ -310,7 +396,7 @@ def get_reply_action_inline_keyboard() -> dict:
             ],
             [
                 {"text": "🕒 Jam & Tanggal", "callback_data": "menu_time"},
-                {"text": "📊 Status Bot", "callback_data": "menu_status"},
+                {"text": "💰 Saldo", "callback_data": "menu_saldo"},
             ],
         ]
     }
@@ -326,7 +412,7 @@ def get_start_inline_keyboard() -> dict:
             ],
             [
                 {"text": "🕒 Jam & Tanggal", "callback_data": "menu_time"},
-                {"text": "⏱️ Status Bot", "callback_data": "menu_status"},
+                {"text": "💰 Saldo", "callback_data": "menu_saldo"},
             ],
         ]
     }
@@ -397,7 +483,7 @@ def should_respond_in_group(message: dict, text: str, identity: dict) -> bool:
     if bot_id and reply_from.get("id") == bot_id:
         return True
 
-    if stripped in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS, BTN_TIME):
+    if stripped in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_SALDO, BTN_TIME):
         return True
 
     if stripped and is_rdp_request(stripped):
@@ -849,6 +935,35 @@ def send_time_info(
     )
 
 
+def send_saldo_info(
+    telegram_token: str,
+    bot_label: str,
+    user_id: int | None,
+    sender_name: str,
+    chat_id: int,
+    reply_to_message_id: int | None = None,
+) -> None:
+    saldo_rp = get_user_balance(bot_label, user_id) if user_id else 0
+    sisa_jalan = saldo_rp // COST_PER_RUN_RP
+    msg = (
+        f"<b>💰 SALDO ({html.escape(bot_label)})</b>\n"
+        f"<blockquote>"
+        f"• <b>User:</b> <code>{html.escape(sender_name)}</code> (<code>{user_id or 0}</code>)\n"
+        f"• <b>Saldo Kamu:</b> <code>{html.escape(format_rp(saldo_rp))}</code>\n"
+        f"• <b>Tarif / Jalan:</b> <code>{html.escape(format_rp(COST_PER_RUN_RP))}</code> (sisa ~<code>{sisa_jalan:,}</code> jalan)\n"
+        f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>"
+        f"</blockquote>"
+    )
+    send_telegram_message(
+        telegram_token,
+        chat_id,
+        msg,
+        reply_to_message_id=reply_to_message_id,
+        parse_mode="HTML",
+        reply_markup=get_reply_action_inline_keyboard(),
+    )
+
+
 def handle_menu_action(
     telegram_token: str,
     groq_api_key: str,
@@ -856,6 +971,7 @@ def handle_menu_action(
     models: dict,
     action_key: str,
     chat_id: int,
+    user_id: int | None,
     sender_name: str,
     reply_to_message_id: int | None = None,
     is_group: bool = False,
@@ -893,23 +1009,14 @@ def handle_menu_action(
             parse_mode="HTML",
             reply_markup=get_reply_action_inline_keyboard(),
         )
-    elif action_key == "status":
-        vis_m = html.escape(str(models.get("vision_model") or "Tidak tersedia"))
-        msg = (
-            f"<b>📊 BOT STATUS ({html.escape(bot_label)})</b>\n"
-            f"<blockquote>"
-            f"• <b>Mode:</b> <code>Vercel Webhook 24/7</code>\n"
-            f"• <b>Chat Model:</b> <code>{html.escape(chat_model)}</code>\n"
-            f"• <b>Vision Model:</b> <code>{vis_m}</code>"
-            f"</blockquote>"
-        )
-        send_telegram_message(
+    elif action_key == "saldo":
+        send_saldo_info(
             telegram_token,
+            bot_label,
+            user_id,
+            sender_name,
             chat_id,
-            msg,
             reply_to_message_id=reply_to_message_id,
-            parse_mode="HTML",
-            reply_markup=get_reply_action_inline_keyboard(),
         )
     elif action_key == "roast":
         roast_reply, _ = ask_groq(
@@ -948,6 +1055,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         cb_chat_id = cb_chat.get("id")
         cb_is_group = cb_chat.get("type") in ("group", "supergroup")
         cb_user = callback.get("from") or {}
+        cb_user_id = cb_user.get("id")
         cb_sender = cb_user.get("first_name") or cb_user.get("username") or "Manusia"
 
         if cb_id:
@@ -957,7 +1065,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             "menu_forex": "forex",
             "menu_rdp": "rdp",
             "menu_guide": "guide",
-            "menu_status": "status",
+            "menu_saldo": "saldo",
             "menu_roast": "roast",
             "menu_time": "time",
         }
@@ -969,6 +1077,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
                 models,
                 action_map[cb_data],
                 cb_chat_id,
+                cb_user_id,
                 cb_sender,
                 is_group=cb_is_group,
             )
@@ -1026,6 +1135,10 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
 
     cleaned_text = strip_bot_mention(text, identity.get("username") or "")
 
+    if not has_photo and cleaned_text.startswith("/saldo"):
+        send_saldo_info(telegram_token, bot_label, user_id, sender_name, chat_id, reply_to_message_id=message_id)
+        return
+
     if not has_photo and cleaned_text.startswith("/forex"):
         send_forex_mini_app(telegram_token, groq_api_key, chat_id, sender_name, models["chat_model"], reply_to_message_id=message_id)
         return
@@ -1037,7 +1150,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         styled_welcome = (
             f"<b>⚡ AI BOT READY</b>\n"
             f"<blockquote>{html.escape(welcome_text)}</blockquote>\n"
-            f"<i>Pilih menu pada pesan di bawah atau ketik pertanyaan.</i>"
+            f"<i>Tarif {html.escape(format_rp(COST_PER_RUN_RP))}/jalan • Min depo {html.escape(format_rp(MIN_DEPOSIT_RP))}.</i>"
         )
 
         if not is_group:
@@ -1093,14 +1206,14 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             )
         return
 
-    if not has_photo and cleaned_text in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS, BTN_TIME):
+    if not has_photo and cleaned_text in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_SALDO, BTN_TIME):
         quick_map = {
             BTN_START_APP: "forex",
             BTN_FOREX: "forex",
             BTN_RDP: "rdp",
             BTN_GUIDE: "guide",
             BTN_ROAST: "roast",
-            BTN_STATUS: "status",
+            BTN_SALDO: "saldo",
             BTN_TIME: "time",
         }
         handle_menu_action(
@@ -1110,6 +1223,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             models,
             quick_map[cleaned_text],
             chat_id,
+            user_id,
             sender_name,
             reply_to_message_id=message_id,
             is_group=is_group,
