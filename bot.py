@@ -19,7 +19,7 @@ BOT_INSTANCES = [
         ),
         "groq_api_key": os.getenv(
             "GROQ_API_KEY_1",
-            os.getenv("GROQ_API_KEY"," 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"),
+            os.getenv("GROQ_API_KEY", "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"),
         ),
     },
     {
@@ -218,6 +218,18 @@ def ensure_angry_profanity(text: str) -> str:
         parts.insert(1, f"{word},")
         return " ".join(parts)
     return f"{text}, {word}!"
+
+
+def clear_webhook_before_polling(telegram_token: str, label: str) -> None:
+    try:
+        url = f"https://api.telegram.org/bot{telegram_token}/deleteWebhook"
+        resp = requests.post(url, json={"drop_pending_updates": False}, timeout=15)
+        if resp.ok and resp.json().get("ok"):
+            print(f"[{label}] deleteWebhook sukses (siap polling).", flush=True)
+        else:
+            print(f"[{label}] Info deleteWebhook: {resp.text}", file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"[{label}] Info: gagal deleteWebhook (diabaikan): {e}", file=sys.stderr, flush=True)
 
 
 def fetch_bot_identity(telegram_token: str) -> dict:
@@ -1306,6 +1318,7 @@ def run_single_bot(cfg: dict) -> None:
         print(f"[{label}] Dilewati karena token Telegram atau Groq API key kosong.", flush=True)
         return
 
+    clear_webhook_before_polling(telegram_token, label)
     identity = fetch_bot_identity(telegram_token)
     register_bot_description(telegram_token, label)
     register_chat_menu_button(telegram_token, label)
