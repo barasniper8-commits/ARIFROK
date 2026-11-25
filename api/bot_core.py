@@ -40,6 +40,7 @@ BTN_RDP = "⚡ RDP Vortex"
 BTN_GUIDE = "📖 Cara Pakai Vortex"
 BTN_ROAST = "🔥 Roast Gua"
 BTN_SALDO = "💰 Saldo"
+BTN_TOPUP = "💳 Topup"
 BTN_TIME = "🕒 Jam & Tanggal"
 
 RDP_KEYWORDS = (
@@ -189,9 +190,77 @@ def format_rp(amount: int) -> str:
     return f"Rp{int(amount):,}".replace(",", ".")
 
 
+def _norm_bot_name(bot_label: str) -> str:
+    norm = (bot_label or "bot1").strip().lower().replace("-", "")
+    if norm in ("bot2", "2"):
+        return "bot2"
+    return "bot1"
+
+
 def _balance_key(bot_label: str, user_id: int) -> str:
-    norm_bot = (bot_label or "bot1").strip().lower().replace("-", "")
-    return f"saldo:{norm_bot}:{int(user_id)}"
+    return f"saldo:{_norm_bot_name(bot_label)}:{int(user_id)}"
+
+
+def _github_config() -> tuple[str, str, str]:
+    token = (os.getenv("GITHUB_TOKEN") or "").strip()
+    repo = (os.getenv("GITHUB_REPO") or "").strip()
+    path = (os.getenv("GITHUB_SALDO_PATH") or "data/saldo_users.json").strip().lstrip("/")
+    return token, repo, path
+
+
+def _fetch_github_saldo_doc() -> tuple[dict, str | None]:
+    token, repo, path = _github_config()
+    if not token or not repo:
+        return {}, None
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=12)
+        if r.status_code == 404:
+            return {"users": {}}, None
+        if r.ok:
+            data = r.json()
+            sha = data.get("sha")
+            encoded = (data.get("content") or "").replace("\n", "")
+            decoded = base64.b64decode(encoded).decode("utf-8") if encoded else "{}"
+            parsed = json.loads(decoded)
+            if isinstance(parsed, dict):
+                if "users" not in parsed or not isinstance(parsed["users"], dict):
+                    parsed["users"] = {}
+                return parsed, sha
+    except Exception as e:
+        print(f"[GitHub Saldo Read Error] {e}", file=sys.stderr, flush=True)
+    return {"users": {}}, None
+
+
+def _save_github_saldo_doc(doc: dict, sha: str | None) -> bool:
+    token, repo, path = _github_config()
+    if not token or not repo:
+        return False
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    content_str = json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
+    payload: dict = {
+        "message": "chore: update saldo user bot",
+        "content": base64.b64encode(content_str.encode("utf-8")).decode("utf-8"),
+    }
+    if sha:
+        payload["sha"] = sha
+    try:
+        r = requests.put(url, headers=headers, json=payload, timeout=15)
+        if not r.ok:
+            print(f"[GitHub Saldo Write Error] HTTP {r.status_code}: {r.text}", file=sys.stderr, flush=True)
+            return False
+        return True
+    except Exception as e:
+        print(f"[GitHub Saldo Write Exception] {e}", file=sys.stderr, flush=True)
+        return False
 
 
 def _read_saldo_disk() -> dict[str, int]:
@@ -218,6 +287,13 @@ def _write_saldo_disk(data: dict[str, int]) -> None:
 def get_user_balance(bot_label: str, user_id: int) -> int:
     key = _balance_key(bot_label, user_id)
     with _SALDO_LOCK:
+        doc, _ = _fetch_github_saldo_doc()
+        users = doc.get("users") if isinstance(doc.get("users"), dict) else {}
+        if key in users and isinstance(users[key], dict):
+            bal = max(0, int(users[key].get("saldo", 0)))
+            _MEMORY_BALANCES[key] = bal
+            return bal
+
         disk_data = _read_saldo_disk()
         if key in disk_data:
             _MEMORY_BALANCES[key] = disk_data[key]
@@ -225,7 +301,8 @@ def get_user_balance(bot_label: str, user_id: int) -> int:
         return max(0, int(_MEMORY_BALANCES.get(key, 0)))
 
 
-def set_user_balance(bot_label: str, user_id: int, amount: int) -> int:
+def set_user_balance(bot_label: str, user_id: int, amount: int, sender_name: str = "") -> int:
+    norm_bot = _norm_bot_name(bot_label)
     key = _balance_key(bot_label, user_id)
     bal = max(0, int(amount))
     with _SALDO_LOCK:
@@ -233,33 +310,65 @@ def set_user_balance(bot_label: str, user_id: int, amount: int) -> int:
         disk_data[key] = bal
         _MEMORY_BALANCES[key] = bal
         _write_saldo_disk(disk_data)
+
+        doc, sha = _fetch_github_saldo_doc()
+        users = doc.setdefault("users", {})
+        prev_entry = users.get(key) if isinstance(users.get(key), dict) else {}
+        users[key] = {
+            "bot": norm_bot,
+            "user_id": int(user_id),
+            "nama": sender_name or prev_entry.get("nama") or "User",
+            "saldo": bal,
+            "updated_at": datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB"),
+        }
+        _save_github_saldo_doc(doc, sha)
     return bal
 
 
 def add_user_balance(bot_label: str, user_id: int, delta: int) -> int:
-    key = _balance_key(bot_label, user_id)
-    with _SALDO_LOCK:
-        disk_data = _read_saldo_disk()
-        current = disk_data.get(key, _MEMORY_BALANCES.get(key, 0))
-        bal = max(0, int(current) + int(delta))
-        disk_data[key] = bal
-        _MEMORY_BALANCES[key] = bal
-        _write_saldo_disk(disk_data)
-    return bal
+    current = get_user_balance(bot_label, user_id)
+    return set_user_balance(bot_label, user_id, current + int(delta))
 
 
 def charge_per_run(bot_label: str, user_id: int) -> tuple[bool, int]:
+    current = get_user_balance(bot_label, user_id)
+    if current < COST_PER_RUN_RP:
+        return False, current
+    new_bal = set_user_balance(bot_label, user_id, current - COST_PER_RUN_RP)
+    return True, new_bal
+
+
+def register_topup_request_to_github(bot_label: str, user_id: int, sender_name: str) -> tuple[int, bool]:
+    norm_bot = _norm_bot_name(bot_label)
     key = _balance_key(bot_label, user_id)
     with _SALDO_LOCK:
         disk_data = _read_saldo_disk()
-        current = max(0, int(disk_data.get(key, _MEMORY_BALANCES.get(key, 0))))
-        if current < COST_PER_RUN_RP:
-            return False, current
-        new_bal = current - COST_PER_RUN_RP
-        disk_data[key] = new_bal
-        _MEMORY_BALANCES[key] = new_bal
+        doc, sha = _fetch_github_saldo_doc()
+        users = doc.setdefault("users", {})
+        prev_entry = users.get(key) if isinstance(users.get(key), dict) else {}
+
+        current_bal = max(
+            0,
+            int(
+                prev_entry.get("saldo")
+                if "saldo" in prev_entry
+                else disk_data.get(key, _MEMORY_BALANCES.get(key, 0))
+            ),
+        )
+        _MEMORY_BALANCES[key] = current_bal
+        disk_data[key] = current_bal
         _write_saldo_disk(disk_data)
-    return True, new_bal
+
+        users[key] = {
+            "bot": norm_bot,
+            "user_id": int(user_id),
+            "nama": sender_name or prev_entry.get("nama") or "User",
+            "saldo": current_bal,
+            "status_topup": "menunggu_tambah_saldo",
+            "updated_at": datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB"),
+        }
+        synced = _save_github_saldo_doc(doc, sha)
+    return current_bal, synced
 
 
 def format_wib_datetime() -> tuple[str, str]:
@@ -398,6 +507,9 @@ def get_reply_action_inline_keyboard() -> dict:
                 {"text": "🕒 Jam & Tanggal", "callback_data": "menu_time"},
                 {"text": "💰 Saldo", "callback_data": "menu_saldo"},
             ],
+            [
+                {"text": "💳 Topup", "callback_data": "menu_topup"},
+            ],
         ]
     }
 
@@ -413,6 +525,9 @@ def get_start_inline_keyboard() -> dict:
             [
                 {"text": "🕒 Jam & Tanggal", "callback_data": "menu_time"},
                 {"text": "💰 Saldo", "callback_data": "menu_saldo"},
+            ],
+            [
+                {"text": "💳 Topup", "callback_data": "menu_topup"},
             ],
         ]
     }
@@ -483,7 +598,7 @@ def should_respond_in_group(message: dict, text: str, identity: dict) -> bool:
     if bot_id and reply_from.get("id") == bot_id:
         return True
 
-    if stripped in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_SALDO, BTN_TIME):
+    if stripped in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_SALDO, BTN_TOPUP, BTN_TIME):
         return True
 
     if stripped and is_rdp_request(stripped):
@@ -948,11 +1063,49 @@ def send_saldo_info(
     msg = (
         f"<b>💰 SALDO ({html.escape(bot_label)})</b>\n"
         f"<blockquote>"
+        f"• <b>Bot:</b> <code>{html.escape(_norm_bot_name(bot_label))}</code>\n"
         f"• <b>User:</b> <code>{html.escape(sender_name)}</code> (<code>{user_id or 0}</code>)\n"
         f"• <b>Saldo Kamu:</b> <code>{html.escape(format_rp(saldo_rp))}</code>\n"
         f"• <b>Tarif / Jalan:</b> <code>{html.escape(format_rp(COST_PER_RUN_RP))}</code> (sisa ~<code>{sisa_jalan:,}</code> jalan)\n"
         f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>"
         f"</blockquote>"
+    )
+    send_telegram_message(
+        telegram_token,
+        chat_id,
+        msg,
+        reply_to_message_id=reply_to_message_id,
+        parse_mode="HTML",
+        reply_markup=get_reply_action_inline_keyboard(),
+    )
+
+
+def send_topup_request(
+    telegram_token: str,
+    bot_label: str,
+    user_id: int | None,
+    sender_name: str,
+    chat_id: int,
+    reply_to_message_id: int | None = None,
+) -> None:
+    norm_bot = _norm_bot_name(bot_label)
+    uid = int(user_id or 0)
+    saldo_rp, synced = register_topup_request_to_github(norm_bot, uid, sender_name)
+    _, gh_repo, gh_path = _github_config()
+    sync_status = "Tersimpan ke GitHub" if synced else "Lokal saja (cek GITHUB_TOKEN & GITHUB_REPO)"
+
+    msg = (
+        f"<b>💳 REQUEST TOPUP TERCATAT</b>\n"
+        f"<blockquote>"
+        f"• <b>Bot:</b> <code>{html.escape(norm_bot)}</code>\n"
+        f"• <b>User ID:</b> <code>{uid}</code>\n"
+        f"• <b>Nama:</b> <code>{html.escape(sender_name)}</code>\n"
+        f"• <b>Saldo Saat Ini:</b> <code>{html.escape(format_rp(saldo_rp))}</code>\n"
+        f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>\n"
+        f"• <b>File GitHub:</b> <code>{html.escape(gh_repo or '-')}</code> / <code>{html.escape(gh_path)}</code>\n"
+        f"• <b>Status:</b> <code>{html.escape(sync_status)}</code>"
+        f"</blockquote>\n"
+        f"<i>Edit nilai <code>\"saldo\"</code> pada key <code>saldo:{html.escape(norm_bot)}:{uid}</code> di file GitHub lalu klik Saldo.</i>"
     )
     send_telegram_message(
         telegram_token,
@@ -1018,6 +1171,15 @@ def handle_menu_action(
             chat_id,
             reply_to_message_id=reply_to_message_id,
         )
+    elif action_key == "topup":
+        send_topup_request(
+            telegram_token,
+            bot_label,
+            user_id,
+            sender_name,
+            chat_id,
+            reply_to_message_id=reply_to_message_id,
+        )
     elif action_key == "roast":
         roast_reply, _ = ask_groq(
             groq_api_key,
@@ -1066,6 +1228,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             "menu_rdp": "rdp",
             "menu_guide": "guide",
             "menu_saldo": "saldo",
+            "menu_topup": "topup",
             "menu_roast": "roast",
             "menu_time": "time",
         }
@@ -1134,6 +1297,10 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         return
 
     cleaned_text = strip_bot_mention(text, identity.get("username") or "")
+
+    if not has_photo and cleaned_text.startswith("/topup"):
+        send_topup_request(telegram_token, bot_label, user_id, sender_name, chat_id, reply_to_message_id=message_id)
+        return
 
     if not has_photo and cleaned_text.startswith("/saldo"):
         send_saldo_info(telegram_token, bot_label, user_id, sender_name, chat_id, reply_to_message_id=message_id)
@@ -1206,7 +1373,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             )
         return
 
-    if not has_photo and cleaned_text in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_SALDO, BTN_TIME):
+    if not has_photo and cleaned_text in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_SALDO, BTN_TOPUP, BTN_TIME):
         quick_map = {
             BTN_START_APP: "forex",
             BTN_FOREX: "forex",
@@ -1214,6 +1381,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             BTN_GUIDE: "guide",
             BTN_ROAST: "roast",
             BTN_SALDO: "saldo",
+            BTN_TOPUP: "topup",
             BTN_TIME: "time",
         }
         handle_menu_action(
