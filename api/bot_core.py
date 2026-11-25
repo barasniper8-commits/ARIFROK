@@ -313,9 +313,89 @@ def register_or_get_saldo_entry(
         return entry, saved
 
 
-def get_user_balance(bot_label: str, user_id: int | None, sender_name: str = "Manusia") -> int:
-    entry, _ = register_or_get_saldo_entry(bot_label, user_id, sender_name=sender_name, request_topup=False)
-    return max(0, int(entry.get("saldo", 0)))
+def consume_run_balance(
+    bot_label: str,
+    user_id: int | None,
+    sender_name: str = "Manusia",
+) -> tuple[bool, int, bool]:
+    uid = int(user_id or 0)
+    key = _entry_key(bot_label, uid)
+    now_wib = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB")
+
+    with _SALDO_LOCK:
+        db, sha = _fetch_github_saldo_file()
+        entry = db.get(key)
+        if not isinstance(entry, dict):
+            entry = {
+                "bot": bot_label,
+                "user_id": uid,
+                "nama": sender_name,
+                "saldo": 0,
+                "min_deposit": MIN_DEPOSIT_RP,
+                "tarif_per_jalan": COST_PER_RUN_RP,
+                "status_topup": "belum_ada",
+                "update_terakhir": now_wib,
+            }
+
+        current_saldo = max(0, int(entry.get("saldo", 0)))
+        if current_saldo < COST_PER_RUN_RP:
+            entry["bot"] = bot_label
+            entry["user_id"] = uid
+            if sender_name:
+                entry["nama"] = sender_name
+            entry["saldo"] = current_saldo
+            entry["min_deposit"] = MIN_DEPOSIT_RP
+            entry["tarif_per_jalan"] = COST_PER_RUN_RP
+            entry["update_terakhir"] = now_wib
+            db[key] = entry
+            saved = _save_github_saldo_file(db, sha, f"sync saldo {bot_label} user {uid}")
+            return False, current_saldo, saved
+
+        new_saldo = current_saldo - COST_PER_RUN_RP
+        entry["bot"] = bot_label
+        entry["user_id"] = uid
+        if sender_name:
+            entry["nama"] = sender_name
+        entry["saldo"] = new_saldo
+        entry["min_deposit"] = MIN_DEPOSIT_RP
+        entry["tarif_per_jalan"] = COST_PER_RUN_RP
+        entry["update_terakhir"] = now_wib
+        db[key] = entry
+        saved = _save_github_saldo_file(
+            db,
+            sha,
+            f"potong saldo {COST_PER_RUN_RP} {bot_label} user {uid} (sisa {new_saldo})",
+        )
+        return True, new_saldo, saved
+
+
+def send_insufficient_balance_notice(
+    telegram_token: str,
+    bot_label: str,
+    user_id: int | None,
+    sender_name: str,
+    current_saldo: int,
+    chat_id: int,
+    reply_to_message_id: int | None = None,
+) -> None:
+    msg = (
+        f"<b>⚠️ SALDO TIDAK CUKUP ({html.escape(bot_label)})</b>\n"
+        f"<blockquote>"
+        f"• <b>User ID:</b> <code>{user_id or 0}</code> ({html.escape(sender_name)})\n"
+        f"• <b>Saldo Kamu:</b> <code>{html.escape(format_rp(current_saldo))}</code>\n"
+        f"• <b>Tarif / Jalan:</b> <code>{html.escape(format_rp(COST_PER_RUN_RP))}</code>\n"
+        f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>\n"
+        f"• Klik <b>💳 Topup</b> untuk mencatat ID ke GitHub."
+        f"</blockquote>"
+    )
+    send_telegram_message(
+        telegram_token,
+        chat_id,
+        msg,
+        reply_to_message_id=reply_to_message_id,
+        parse_mode="HTML",
+        reply_markup=get_reply_action_inline_keyboard(),
+    )
 
 
 def format_wib_datetime() -> tuple[str, str]:
@@ -499,9 +579,15 @@ def get_rdp_inline_keyboard() -> dict:
     }
 
 
-def format_styled_reply(badge: str, body_text: str) -> str:
+def format_styled_reply(badge: str, body_text: str, sisa_saldo: int | None = None) -> str:
     safe_badge = html.escape(badge)
     safe_body = html.escape(body_text)
+    if sisa_saldo is not None:
+        return (
+            f"<b>【 {safe_badge} 】</b>\n"
+            f"<blockquote>{safe_body}</blockquote>\n"
+            f"<i>-{html.escape(format_rp(COST_PER_RUN_RP))} • Sisa saldo: <code>{html.escape(format_rp(sisa_saldo))}</code></i>"
+        )
     return f"<b>【 {safe_badge} 】</b>\n<blockquote>{safe_body}</blockquote>"
 
 
@@ -1215,6 +1301,19 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
 
     web_app_data = message.get("web_app_data")
     if web_app_data:
+        allowed, sisa_saldo, _ = consume_run_balance(bot_label, user_id, sender_name=sender_name)
+        if not allowed:
+            send_insufficient_balance_notice(
+                telegram_token,
+                bot_label,
+                user_id,
+                sender_name,
+                sisa_saldo,
+                chat_id,
+                reply_to_message_id=message_id,
+            )
+            return
+
         raw_payload = (web_app_data.get("data") or "").strip()
         try:
             ai_resp, _ = ask_groq(
@@ -1232,7 +1331,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         send_telegram_message(
             telegram_token,
             chat_id,
-            format_styled_reply("MINI APP DATA", ai_resp),
+            format_styled_reply("MINI APP DATA", ai_resp, sisa_saldo=sisa_saldo),
             reply_to_message_id=message_id,
             parse_mode="HTML",
             reply_markup=get_reply_action_inline_keyboard(),
@@ -1355,6 +1454,19 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         send_rdp_package(telegram_token, groq_api_key, chat_id, sender_name, cleaned_text, models["chat_model"], reply_to_message_id=message_id)
         return
 
+    allowed, sisa_saldo, _ = consume_run_balance(bot_label, user_id, sender_name=sender_name)
+    if not allowed:
+        send_insufficient_balance_notice(
+            telegram_token,
+            bot_label,
+            user_id,
+            sender_name,
+            sisa_saldo,
+            chat_id,
+            reply_to_message_id=message_id,
+        )
+        return
+
     image_b64 = None
     mime_type = "image/jpeg"
     if has_photo:
@@ -1392,7 +1504,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         send_telegram_message(
             telegram_token,
             chat_id,
-            format_styled_reply(badge, reply_text),
+            format_styled_reply(badge, reply_text, sisa_saldo=sisa_saldo),
             reply_to_message_id=message_id,
             parse_mode="HTML",
             reply_markup=get_reply_action_inline_keyboard(),
