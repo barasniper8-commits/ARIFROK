@@ -11,7 +11,7 @@ import requests
 
 WIB = timezone(timedelta(hours=7))
 
-COST_PER_RUN_RP = 1
+COST_PER_RUN_RP = 5
 MIN_DEPOSIT_RP = 5000
 
 GITHUB_TOKEN = (os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN") or "").strip()
