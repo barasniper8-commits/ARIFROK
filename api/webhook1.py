@@ -6,8 +6,14 @@ from http.server import BaseHTTPRequestHandler
 sys.path.append(os.path.dirname(__file__))
 from bot_core import process_webhook_update
 
-BOT1_TOKEN = os.getenv("TELEGRAM_TOKEN_1", os.getenv("TELEGRAM_TOKEN", "9042103827:AAHRljMm11tXucZUgkks4RiuHcJj99VZkss"))
-GROQ_KEY_1 = os.getenv("GROQ_API_KEY_1", os.getenv("GROQ_API_KEY", "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"))
+BOT1_TOKEN = os.getenv(
+    "TELEGRAM_TOKEN_1_",
+    os.getenv("TELEGRAM_TOKEN_1", os.getenv("TELEGRAM_TOKEN", "")),
+).strip()
+GROQ_KEY_1 = os.getenv(
+    "GROQ_API_KEY_1_",
+    os.getenv("GROQ_API_KEY_1", os.getenv("GROQ_API_KEY", "")),
+).strip()
 
 
 class handler(BaseHTTPRequestHandler):
