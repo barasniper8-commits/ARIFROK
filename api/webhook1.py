@@ -1,67 +1,32 @@
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+import json
+import os
+import sys
+from http.server import BaseHTTPRequestHandler
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+sys.path.append(os.path.dirname(__file__))
+from bot_core import process_webhook_update
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({
-      success: false,
-      error: 'Method not allowed. Gunakan POST.'
-    });
-  }
+BOT1_TOKEN = os.getenv("TELEGRAM_TOKEN_1", os.getenv("TELEGRAM_TOKEN", "9042103827:AAHRljMm11tXucZUgkks4RiuHcJj99VZkss"))
+GROQ_KEY_1 = os.getenv("GROQ_API_KEY_1", os.getenv("GROQ_API_KEY", "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"))
 
-  const token = process.env.GITHUB_TOKEN;
-  const owner = process.env.GITHUB_OWNER;
-  const repo = process.env.GITHUB_REPO;
-  const workflowId = process.env.GITHUB_WORKFLOW;
 
-  if (!token || !owner || !repo || !workflowId) {
-    return res.status(500).json({
-      success: false,
-      error: 'Environment Variables di Vercel belum lengkap (cek GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO, GITHUB_WORKFLOW).'
-    });
-  }
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"ok": True, "bot": "Bot-1", "mode": "vercel-webhook"}).encode("utf-8"))
 
-  const { ref = 'main', inputs = {} } = req.body || {};
+    def do_POST(self):
+        content_length = int(self.headers.get("Content-Length", "0"))
+        raw_body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+        try:
+            update = json.loads(raw_body.decode("utf-8"))
+            process_webhook_update(update, BOT1_TOKEN, GROQ_KEY_1, "Bot-1")
+        except Exception as e:
+            print(f"[Bot-1 Webhook Error] {e}", file=sys.stderr, flush=True)
 
-  try {
-    const ghRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          ref,
-          inputs
-        })
-      }
-    );
-
-    if (ghRes.status === 204) {
-      return res.status(200).json({
-        success: true,
-        message: `Workflow (${workflowId}) di branch "${ref}" berhasil dijalankan!`
-      });
-    }
-
-    const errData = await ghRes.json().catch(() => ({}));
-    return res.status(ghRes.status).json({
-      success: false,
-      error: errData.message || `Gagal memicu workflow (HTTP ${ghRes.status})`
-    });
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      error: `Gagal menghubungi GitHub API: ${err.message}`
-    });
-  }
-}
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"ok":true}')
