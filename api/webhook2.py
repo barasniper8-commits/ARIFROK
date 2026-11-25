@@ -1,4 +1,3 @@
-
 import json
 import os
 import sys
@@ -7,8 +6,8 @@ from http.server import BaseHTTPRequestHandler
 sys.path.append(os.path.dirname(__file__))
 from bot_core import process_webhook_update
 
-BOT2_TOKEN = os.getenv("TELEGRAM_TOKEN_2", "9192278111:AAGcd7MsEDiwgggw77nCZSX3WdT19oXEo9w")
-GROQ_KEY_2 = os.getenv("GROQ_API_KEY_2", "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")
+BOT2_TOKEN = os.getenv("TELEGRAM_TOKEN_2_", os.getenv("TELEGRAM_TOKEN_2", "")).strip()
+GROQ_KEY_2 = os.getenv("GROQ_API_KEY_2_", os.getenv("GROQ_API_KEY_2", "")).strip()
 
 
 class handler(BaseHTTPRequestHandler):
