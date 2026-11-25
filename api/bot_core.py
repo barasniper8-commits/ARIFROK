@@ -273,15 +273,12 @@ def configure_telegram_bot(telegram_token: str, webhook_url: str) -> dict:
 
 
 def get_remove_reply_keyboard() -> dict:
-    # Menghapus / menyembunyikan tombol keyboard di bawah kolom kirim pesan
     return {"remove_keyboard": True}
 
 
 def get_reply_action_inline_keyboard() -> dict:
-    # Tombol menu yang menempel di atas (pada pesan jawaban bot)
     return {
         "inline_keyboard": [
-            [{"text": "🚀 Mulai Bot (Mini App)", "web_app": {"url": START_MINI_APP_URL}}],
             [
                 {"text": "📈 Analisa Forex", "web_app": {"url": FOREX_MINI_APP_URL}},
                 {"text": "⚡ RDP Vortex", "callback_data": "menu_rdp"},
@@ -298,7 +295,6 @@ def get_reply_action_inline_keyboard() -> dict:
 def get_start_inline_keyboard() -> dict:
     return {
         "inline_keyboard": [
-            [{"text": "BOT ON/OFF", "web_app": {"url": START_MINI_APP_URL}}],
             [{"text": "📈 RDP VORTEX STD", "web_app": {"url": FOREX_MINI_APP_URL}}],
             [
                 {"text": "💾 DOWNLOAD RDP VORTEX", "callback_data": "menu_rdp"},
@@ -975,7 +971,6 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             f"<i>Pilih menu pada pesan di atas atau ketik pertanyaan.</i>"
         )
 
-        # Hapus reply keyboard lama di bawah saat /start atau /menu
         if not is_group:
             try:
                 send_telegram_message(
