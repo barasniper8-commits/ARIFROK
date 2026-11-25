@@ -1,12 +1,13 @@
 import base64
+from datetime import datetime, timedelta, timezone
 import html
 import json
-import os
 import random
 import re
 import sys
-from urllib.parse import quote
 import requests
+
+WIB = timezone(timedelta(hours=7))
 
 RDP_PHOTO_URL = (
     "https://blogger.googleusercontent.com/img/b/R29vZ2xl/"
@@ -17,21 +18,11 @@ RDP_APP_LINK = "https://sfile.co/FX05ITaeqgj"
 START_MINI_APP_URL = "https://arianto12.lynk.id/p/autkey"
 FOREX_MINI_APP_URL = "https://arianto12.lynk.id/p/analisa-forex"
 
-# Isi di Environment Variables Vercel (pakai akhiran _ sesuai format env kamu)
-APIPEDIA_YT_URL = os.getenv(
-    "APIPEDIA_YT_URL_",
-    os.getenv("YT_MP3_API_URL_", "https://api.apipedia.id/v1/dl/youtube"),
-).strip()
-APIPEDIA_TOKEN = os.getenv(
-    "APIPEDIA_TOKEN_",
-    os.getenv("YT_MP3_API_TOKEN_", ""),
-).strip()
-
 BOT_DESCRIPTION = (
     "⚡ VORTEX AI ENGINE — Mentor AI sarkas, cerdas, lucu & menggurui.\n"
     "• Vision AI: analisis foto & caption otomatis\n"
-    "• YouTube MP3: kirim link YouTube untuk ambil audio/MP3\n"
-    "• Trading & Mini App: Analisa Forex & akses RDP Vortex STD"
+    "• Trading & Mini App: Analisa Forex & akses RDP Vortex STD\n"
+    "• Aktif 24/7 via Webhook • Klik Mulai Bot untuk masuk!"
 )
 
 BTN_START_APP = "🚀 Mulai Bot (Mini App)"
@@ -40,11 +31,7 @@ BTN_RDP = "⚡ RDP Vortex"
 BTN_GUIDE = "📖 Cara Pakai Vortex"
 BTN_ROAST = "🔥 Roast Gua"
 BTN_STATUS = "📊 Status Bot"
-
-YOUTUBE_URL_PATTERN = re.compile(
-    r"(https?://(?:www\.|m\.|music\.)?(?:youtube\.com/(?:watch\?v=|shorts/|live/)|youtu\.be/)[^\s]+)",
-    re.IGNORECASE,
-)
+BTN_TIME = "🕒 Jam & Tanggal"
 
 RDP_KEYWORDS = (
     "aplikasi rdp",
@@ -182,75 +169,20 @@ Aturan khusus:
 - Jika ada foto: komentari detail foto dan caption-nya dengan sarkas menggurui dan lucu dalam 1–30 kata.
 """
 
-
-def extract_youtube_url(text: str) -> str | None:
-    match = YOUTUBE_URL_PATTERN.search(text or "")
-    return match.group(1).strip() if match else None
-
-
-def _find_url_and_title(payload: object) -> tuple[str | None, str | None]:
-    found_url = None
-    found_title = None
-
-    url_keys = ("mp3", "audio_url", "audio", "download_url", "download", "url", "link")
-    title_keys = ("title", "name", "video_title", "filename")
-
-    def walk(node: object):
-        nonlocal found_url, found_title
-        if isinstance(node, dict):
-            for k in title_keys:
-                if not found_title and isinstance(node.get(k), str) and node.get(k).strip():
-                    found_title = node[k].strip()
-            for k in url_keys:
-                val = node.get(k)
-                if not found_url and isinstance(val, str) and val.strip().startswith(("http://", "https://")):
-                    found_url = val.strip()
-            for v in node.values():
-                walk(v)
-        elif isinstance(node, list):
-            for item in node:
-                walk(item)
-
-    walk(payload)
-    return found_url, found_title
+HARI_ID = ("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu")
+BULAN_ID = (
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+)
 
 
-def fetch_youtube_mp3_link(yt_url: str) -> tuple[str | None, str | None]:
-    if not APIPEDIA_TOKEN:
-        return None, "Token APIPedia belum diisi di Environment Variables Vercel."
-    if not APIPEDIA_YT_URL:
-        return None, "Endpoint APIPedia YouTube belum diisi."
-
-    headers = {
-        "Authorization": f"Bearer {APIPEDIA_TOKEN}",
-        "Accept": "application/json",
-    }
-
-    try:
-        resp = requests.get(
-            APIPEDIA_YT_URL,
-            params={"url": yt_url, "format": "mp3"},
-            headers=headers,
-            timeout=20,
-        )
-        if resp.status_code in (404, 405):
-            resp = requests.post(
-                APIPEDIA_YT_URL,
-                json={"url": yt_url, "format": "mp3"},
-                headers={**headers, "Content-Type": "application/json"},
-                timeout=20,
-            )
-
-        if not resp.ok:
-            return None, f"APIPedia gagal (HTTP {resp.status_code})."
-
-        data = resp.json() if "json" in (resp.headers.get("Content-Type") or "").lower() else {}
-        dl_url, title = _find_url_and_title(data)
-        if not dl_url:
-            return None, "Link audio/unduhan tidak ditemukan di respons APIPedia."
-        return dl_url, title or "YouTube Audio"
-    except Exception as e:
-        return None, str(e)
+def format_wib_datetime() -> tuple[str, str]:
+    now = datetime.now(WIB)
+    hari = HARI_ID[now.weekday()]
+    bulan = BULAN_ID[now.month - 1]
+    tanggal_str = f"{hari}, {now.day:02d} {bulan} {now.year}"
+    jam_str = now.strftime("%H:%M:%S WIB")
+    return tanggal_str, jam_str
 
 
 def is_angry_trigger(text: str) -> bool:
@@ -376,7 +308,10 @@ def get_reply_action_inline_keyboard() -> dict:
                 {"text": "📖 Cara Pakai Vortex", "callback_data": "menu_guide"},
                 {"text": "🔥 Roast Gua", "callback_data": "menu_roast"},
             ],
-            [{"text": "📊 Status Bot", "callback_data": "menu_status"}],
+            [
+                {"text": "🕒 Jam & Tanggal", "callback_data": "menu_time"},
+                {"text": "📊 Status Bot", "callback_data": "menu_status"},
+            ],
         ]
     }
 
@@ -390,6 +325,7 @@ def get_start_inline_keyboard() -> dict:
                 {"text": "📖 Panduan Vortex", "callback_data": "menu_guide"},
             ],
             [
+                {"text": "🕒 Jam & Tanggal", "callback_data": "menu_time"},
                 {"text": "⏱️ Status Bot", "callback_data": "menu_status"},
             ],
         ]
@@ -461,10 +397,10 @@ def should_respond_in_group(message: dict, text: str, identity: dict) -> bool:
     if bot_id and reply_from.get("id") == bot_id:
         return True
 
-    if stripped in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
+    if stripped in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS, BTN_TIME):
         return True
 
-    if stripped and (is_rdp_request(stripped) or extract_youtube_url(stripped)):
+    if stripped and is_rdp_request(stripped):
         return True
 
     if bot_first_name and len(bot_first_name) >= 3 and re.search(rf"\b{re.escape(bot_first_name)}\b", stripped.lower()):
@@ -777,79 +713,6 @@ def build_welcome_message(groq_api_key: str, sender_name: str, chat_model: str, 
         return clamp_words(default_welcome, max_words=30, angry=False)
 
 
-def handle_youtube_mp3_request(
-    telegram_token: str,
-    groq_api_key: str,
-    chat_id: int,
-    sender_name: str,
-    user_text: str,
-    yt_url: str,
-    chat_model: str,
-    reply_to_message_id: int | None = None,
-) -> None:
-    angry = is_angry_trigger(user_text)
-    dl_url, info_or_err = fetch_youtube_mp3_link(yt_url)
-
-    if not dl_url:
-        try:
-            err_msg, _ = ask_groq(
-                groq_api_key,
-                f"gagal ambil audio youtube: {info_or_err}",
-                sender_name,
-                chat_model,
-                extra_instruction="Gurui user dengan sarkas dan lucu karena gagal ambil link audio YouTube. Maksimal 22 kata.",
-                max_words=22,
-                max_tokens=256,
-                force_angry=angry,
-            )
-        except Exception:
-            err_msg = "Gagal ambil link audio YouTube; cek token APIPedia atau pastikan link publik."
-        send_telegram_message(
-            telegram_token,
-            chat_id,
-            format_styled_reply("YT MP3 ERROR", err_msg),
-            reply_to_message_id=reply_to_message_id,
-            parse_mode="HTML",
-            reply_markup=get_reply_action_inline_keyboard(),
-        )
-        return
-
-    try:
-        note, _ = ask_groq(
-            groq_api_key,
-            f"link audio youtube siap: {info_or_err}",
-            sender_name,
-            chat_model,
-            extra_instruction="Gurui user dengan sarkas dan lucu bahwa link download audio YouTube sudah siap dan cepat diunduh sebelum kedaluwarsa. Maksimal 18 kata. Jangan tulis URL.",
-            max_words=18,
-            max_tokens=256,
-            force_angry=angry,
-        )
-    except Exception:
-        note = "Link audionya udah keluar; langsung unduh sebelum kedaluwarsa, jangan kelamaan bengong."
-
-    msg = (
-        f"<b>🎵 YOUTUBE AUDIO READY</b>\n"
-        f"<blockquote>{html.escape(note)}</blockquote>\n"
-        f"🎧 <b>Judul:</b> <code>{html.escape(info_or_err or 'YouTube Audio')}</code>\n"
-        f"🔗 <b>Link:</b> <code>{html.escape(dl_url)}</code>"
-    )
-    yt_markup = {
-        "inline_keyboard": [
-            [{"text": "⬇️ Buka / Download Audio", "url": dl_url}],
-            *get_reply_action_inline_keyboard()["inline_keyboard"],
-        ]
-    }
-    send_telegram_message(
-        telegram_token,
-        chat_id,
-        msg,
-        reply_to_message_id=reply_to_message_id,
-        parse_mode="HTML",
-        reply_markup=yt_markup,
-    )
-
-
 def send_forex_mini_app(
     telegram_token: str,
     groq_api_key: str,
@@ -945,6 +808,47 @@ def send_rdp_package(
         )
 
 
+def send_time_info(
+    telegram_token: str,
+    groq_api_key: str,
+    chat_id: int,
+    sender_name: str,
+    chat_model: str,
+    reply_to_message_id: int | None = None,
+) -> None:
+    tanggal_str, jam_str = format_wib_datetime()
+    try:
+        note, _ = ask_groq(
+            groq_api_key,
+            f"cek jam dan tanggal sekarang: {tanggal_str} jam {jam_str}",
+            sender_name,
+            chat_model,
+            extra_instruction="Gurui user dengan sarkas dan lucu soal manajemen waktu & jam sekarang. Maksimal 20 kata.",
+            max_words=20,
+            max_tokens=256,
+            force_angry=False,
+        )
+    except Exception:
+        note = "Waktu jalan terus, jangan buang jam produktif buat rebahan atau asal klik."
+
+    msg = (
+        f"<b>🕒 JAM & TANGGAL (WIB)</b>\n"
+        f"<blockquote>"
+        f"• <b>Tanggal:</b> <code>{html.escape(tanggal_str)}</code>\n"
+        f"• <b>Jam:</b> <code>{html.escape(jam_str)}</code>\n"
+        f"• <b>Catatan:</b> {html.escape(note)}"
+        f"</blockquote>"
+    )
+    send_telegram_message(
+        telegram_token,
+        chat_id,
+        msg,
+        reply_to_message_id=reply_to_message_id,
+        parse_mode="HTML",
+        reply_markup=get_reply_action_inline_keyboard(),
+    )
+
+
 def handle_menu_action(
     telegram_token: str,
     groq_api_key: str,
@@ -961,6 +865,8 @@ def handle_menu_action(
         send_forex_mini_app(telegram_token, groq_api_key, chat_id, sender_name, chat_model, reply_to_message_id=reply_to_message_id)
     elif action_key == "rdp":
         send_rdp_package(telegram_token, groq_api_key, chat_id, sender_name, "minta rdp vortex", chat_model, reply_to_message_id=reply_to_message_id)
+    elif action_key == "time":
+        send_time_info(telegram_token, groq_api_key, chat_id, sender_name, chat_model, reply_to_message_id=reply_to_message_id)
     elif action_key == "guide":
         try:
             guide_reply, _ = ask_groq(
@@ -1053,6 +959,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             "menu_guide": "guide",
             "menu_status": "status",
             "menu_roast": "roast",
+            "menu_time": "time",
         }
         if cb_chat_id and cb_data in action_map:
             handle_menu_action(
@@ -1130,7 +1037,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         styled_welcome = (
             f"<b>⚡ AI BOT READY</b>\n"
             f"<blockquote>{html.escape(welcome_text)}</blockquote>\n"
-            f"<i>Kirim link YouTube untuk ambil audio, atau pilih menu di bawah.</i>"
+            f"<i>Pilih menu pada pesan di bawah atau ketik pertanyaan.</i>"
         )
 
         if not is_group:
@@ -1150,7 +1057,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
                 telegram_token,
                 chat_id,
                 RDP_PHOTO_URL,
-                "<b>⚡ VORTEX AI & RDP SYSTEM</b>\n<i>Siap membedah logika, foto, link YouTube, dan akses RDP lo.</i>",
+                "<b>⚡ VORTEX AI & RDP SYSTEM</b>\n<i>Siap membedah logika, foto, dan akses RDP lo.</i>",
                 reply_to_message_id=message_id,
                 parse_mode="HTML",
             )
@@ -1186,7 +1093,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             )
         return
 
-    if not has_photo and cleaned_text in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS):
+    if not has_photo and cleaned_text in (BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE, BTN_ROAST, BTN_STATUS, BTN_TIME):
         quick_map = {
             BTN_START_APP: "forex",
             BTN_FOREX: "forex",
@@ -1194,6 +1101,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             BTN_GUIDE: "guide",
             BTN_ROAST: "roast",
             BTN_STATUS: "status",
+            BTN_TIME: "time",
         }
         handle_menu_action(
             telegram_token,
@@ -1205,20 +1113,6 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             sender_name,
             reply_to_message_id=message_id,
             is_group=is_group,
-        )
-        return
-
-    yt_url = extract_youtube_url(cleaned_text) if not has_photo else None
-    if yt_url:
-        handle_youtube_mp3_request(
-            telegram_token,
-            groq_api_key,
-            chat_id,
-            sender_name,
-            cleaned_text,
-            yt_url,
-            models["chat_model"],
-            reply_to_message_id=message_id,
         )
         return
 
