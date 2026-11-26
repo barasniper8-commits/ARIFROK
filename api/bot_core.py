@@ -25,7 +25,7 @@ GITHUB_BRANCH = (
     or os.getenv("GITHUB_BRANCH")
     or "main"
 ).strip()
-SALDO_REPO_PATH = (os.getenv("SALDO_REPO_PATH") or "data/saldo_users.json").strip().lstrip("/")
+SALDO_REPO_PATH = (os.getenv("SALDO_REPO_PATH") or "data/saldo_user.json").strip().lstrip("/")
 
 _SALDO_LOCK = threading.Lock()
 _MEMORY_DB: dict[str, dict] = {}
@@ -41,7 +41,7 @@ FOREX_MINI_APP_URL = "https://arianto12.lynk.id/p/analisa-forex"
 
 BOT_DESCRIPTION = (
     "⚡ VORTEX AI ENGINE — Mentor AI sarkas, cerdas, lucu & menggurui.\n"
-    "• Tarif: Rp1 / jalan • Minimal deposit Rp5.000\n"
+    "• Tarif: Rp5 / jalan • Minimal deposit Rp5.000\n"
     "• Vision AI, Analisa Forex & akses RDP Vortex STD\n"
     "• Aktif 24/7 • Klik Mulai Bot untuk masuk!"
 )
@@ -268,6 +268,13 @@ def _save_github_saldo_file(db: dict[str, dict], sha: str | None, commit_msg: st
     return False
 
 
+def _get_tarif_from_entry(entry: dict) -> int:
+    try:
+        return max(1, int(entry.get("tarif_per_jalan", COST_PER_RUN_RP)))
+    except (TypeError, ValueError):
+        return COST_PER_RUN_RP
+
+
 def register_or_get_saldo_entry(
     bot_label: str,
     user_id: int | None,
@@ -298,7 +305,7 @@ def register_or_get_saldo_entry(
             if sender_name:
                 entry["nama"] = sender_name
             entry["min_deposit"] = MIN_DEPOSIT_RP
-            entry["tarif_per_jalan"] = COST_PER_RUN_RP
+            entry["tarif_per_jalan"] = _get_tarif_from_entry(entry)
             entry["update_terakhir"] = now_wib
 
         if request_topup:
@@ -317,7 +324,7 @@ def consume_run_balance(
     bot_label: str,
     user_id: int | None,
     sender_name: str = "Manusia",
-) -> tuple[bool, int, bool]:
+) -> tuple[bool, int, int, bool]:
     uid = int(user_id or 0)
     key = _entry_key(bot_label, uid)
     now_wib = datetime.now(WIB).strftime("%Y-%m-%d %H:%M:%S WIB")
@@ -337,36 +344,37 @@ def consume_run_balance(
                 "update_terakhir": now_wib,
             }
 
+        tarif_rp = _get_tarif_from_entry(entry)
         current_saldo = max(0, int(entry.get("saldo", 0)))
-        if current_saldo < COST_PER_RUN_RP:
+        if current_saldo < tarif_rp:
             entry["bot"] = bot_label
             entry["user_id"] = uid
             if sender_name:
                 entry["nama"] = sender_name
             entry["saldo"] = current_saldo
             entry["min_deposit"] = MIN_DEPOSIT_RP
-            entry["tarif_per_jalan"] = COST_PER_RUN_RP
+            entry["tarif_per_jalan"] = tarif_rp
             entry["update_terakhir"] = now_wib
             db[key] = entry
             saved = _save_github_saldo_file(db, sha, f"sync saldo {bot_label} user {uid}")
-            return False, current_saldo, saved
+            return False, current_saldo, tarif_rp, saved
 
-        new_saldo = current_saldo - COST_PER_RUN_RP
+        new_saldo = current_saldo - tarif_rp
         entry["bot"] = bot_label
         entry["user_id"] = uid
         if sender_name:
             entry["nama"] = sender_name
         entry["saldo"] = new_saldo
         entry["min_deposit"] = MIN_DEPOSIT_RP
-        entry["tarif_per_jalan"] = COST_PER_RUN_RP
+        entry["tarif_per_jalan"] = tarif_rp
         entry["update_terakhir"] = now_wib
         db[key] = entry
         saved = _save_github_saldo_file(
             db,
             sha,
-            f"potong saldo {COST_PER_RUN_RP} {bot_label} user {uid} (sisa {new_saldo})",
+            f"potong saldo {tarif_rp} {bot_label} user {uid} (sisa {new_saldo})",
         )
-        return True, new_saldo, saved
+        return True, new_saldo, tarif_rp, saved
 
 
 def send_insufficient_balance_notice(
@@ -375,6 +383,7 @@ def send_insufficient_balance_notice(
     user_id: int | None,
     sender_name: str,
     current_saldo: int,
+    tarif_rp: int,
     chat_id: int,
     reply_to_message_id: int | None = None,
 ) -> None:
@@ -383,7 +392,7 @@ def send_insufficient_balance_notice(
         f"<blockquote>"
         f"• <b>User ID:</b> <code>{user_id or 0}</code> ({html.escape(sender_name)})\n"
         f"• <b>Saldo Kamu:</b> <code>{html.escape(format_rp(current_saldo))}</code>\n"
-        f"• <b>Tarif / Jalan:</b> <code>{html.escape(format_rp(COST_PER_RUN_RP))}</code>\n"
+        f"• <b>Tarif / Jalan:</b> <code>{html.escape(format_rp(tarif_rp))}</code>\n"
         f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>\n"
         f"• Klik <b>💳 Topup</b> untuk mencatat ID ke GitHub."
         f"</blockquote>"
@@ -579,14 +588,14 @@ def get_rdp_inline_keyboard() -> dict:
     }
 
 
-def format_styled_reply(badge: str, body_text: str, sisa_saldo: int | None = None) -> str:
+def format_styled_reply(badge: str, body_text: str, sisa_saldo: int | None = None, tarif_rp: int = COST_PER_RUN_RP) -> str:
     safe_badge = html.escape(badge)
     safe_body = html.escape(body_text)
     if sisa_saldo is not None:
         return (
             f"<b>【 {safe_badge} 】</b>\n"
             f"<blockquote>{safe_body}</blockquote>\n"
-            f"<i>-{html.escape(format_rp(COST_PER_RUN_RP))} • Sisa saldo: <code>{html.escape(format_rp(sisa_saldo))}</code></i>"
+            f"<i>-{html.escape(format_rp(tarif_rp))} • Sisa saldo: <code>{html.escape(format_rp(sisa_saldo))}</code></i>"
         )
     return f"<b>【 {safe_badge} 】</b>\n<blockquote>{safe_body}</blockquote>"
 
@@ -1094,14 +1103,15 @@ def send_saldo_info(
 ) -> None:
     entry, _ = register_or_get_saldo_entry(bot_label, user_id, sender_name=sender_name, request_topup=False)
     saldo_rp = max(0, int(entry.get("saldo", 0)))
-    sisa_jalan = saldo_rp // COST_PER_RUN_RP
+    tarif_rp = _get_tarif_from_entry(entry)
+    sisa_jalan = saldo_rp // tarif_rp
     msg = (
         f"<b>💰 SALDO ({html.escape(bot_label)})</b>\n"
         f"<blockquote>"
         f"• <b>Bot:</b> <code>{html.escape(bot_label)}</code>\n"
         f"• <b>User ID:</b> <code>{user_id or 0}</code> ({html.escape(sender_name)})\n"
         f"• <b>Saldo:</b> <code>{html.escape(format_rp(saldo_rp))}</code>\n"
-        f"• <b>Tarif / Jalan:</b> <code>{html.escape(format_rp(COST_PER_RUN_RP))}</code> (sisa ~<code>{sisa_jalan:,}</code> jalan)\n"
+        f"• <b>Tarif / Jalan:</b> <code>{html.escape(format_rp(tarif_rp))}</code> (sisa ~<code>{sisa_jalan:,}</code> jalan)\n"
         f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>"
         f"</blockquote>"
     )
@@ -1130,6 +1140,7 @@ def send_topup_action(
         request_topup=True,
     )
     saldo_rp = max(0, int(entry.get("saldo", 0)))
+    tarif_rp = _get_tarif_from_entry(entry)
     file_status = (
         f"Tersimpan ke GitHub (<code>{html.escape(SALDO_REPO_PATH)}</code>)"
         if saved_to_github
@@ -1142,7 +1153,7 @@ def send_topup_action(
         f"• <b>User ID:</b> <code>{user_id or 0}</code>\n"
         f"• <b>Saldo Saat Ini:</b> <code>{html.escape(format_rp(saldo_rp))}</code>\n"
         f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>\n"
-        f"• <b>Tarif:</b> <code>{html.escape(format_rp(COST_PER_RUN_RP))}</code> / jalan\n"
+        f"• <b>Tarif:</b> <code>{html.escape(format_rp(tarif_rp))}</code> / jalan\n"
         f"• <b>File GitHub:</b> {file_status}"
         f"</blockquote>"
     )
@@ -1301,7 +1312,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
 
     web_app_data = message.get("web_app_data")
     if web_app_data:
-        allowed, sisa_saldo, _ = consume_run_balance(bot_label, user_id, sender_name=sender_name)
+        allowed, sisa_saldo, tarif_rp, _ = consume_run_balance(bot_label, user_id, sender_name=sender_name)
         if not allowed:
             send_insufficient_balance_notice(
                 telegram_token,
@@ -1309,6 +1320,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
                 user_id,
                 sender_name,
                 sisa_saldo,
+                tarif_rp,
                 chat_id,
                 reply_to_message_id=message_id,
             )
@@ -1331,7 +1343,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         send_telegram_message(
             telegram_token,
             chat_id,
-            format_styled_reply("MINI APP DATA", ai_resp, sisa_saldo=sisa_saldo),
+            format_styled_reply("MINI APP DATA", ai_resp, sisa_saldo=sisa_saldo, tarif_rp=tarif_rp),
             reply_to_message_id=message_id,
             parse_mode="HTML",
             reply_markup=get_reply_action_inline_keyboard(),
@@ -1454,7 +1466,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         send_rdp_package(telegram_token, groq_api_key, chat_id, sender_name, cleaned_text, models["chat_model"], reply_to_message_id=message_id)
         return
 
-    allowed, sisa_saldo, _ = consume_run_balance(bot_label, user_id, sender_name=sender_name)
+    allowed, sisa_saldo, tarif_rp, _ = consume_run_balance(bot_label, user_id, sender_name=sender_name)
     if not allowed:
         send_insufficient_balance_notice(
             telegram_token,
@@ -1462,6 +1474,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
             user_id,
             sender_name,
             sisa_saldo,
+            tarif_rp,
             chat_id,
             reply_to_message_id=message_id,
         )
@@ -1504,7 +1517,7 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         send_telegram_message(
             telegram_token,
             chat_id,
-            format_styled_reply(badge, reply_text, sisa_saldo=sisa_saldo),
+            format_styled_reply(badge, reply_text, sisa_saldo=sisa_saldo, tarif_rp=tarif_rp),
             reply_to_message_id=message_id,
             parse_mode="HTML",
             reply_markup=get_reply_action_inline_keyboard(),
