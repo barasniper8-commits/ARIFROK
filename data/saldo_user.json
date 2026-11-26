@@ -3,11 +3,11 @@
     "bot": "Bot-1",
     "user_id": 1908469040,
     "nama": "Ari",
-    "saldo": 4895,
+    "saldo": 4890,
     "min_deposit": 5000,
     "tarif_per_jalan": 5,
     "status_topup": "menunggu_edit_saldo",
-    "update_terakhir": "2026-11-26 19:03:27 WIB"
+    "update_terakhir": "2026-11-26 19:03:50 WIB"
   },
   "bot2:0": {
     "bot": "Bot-2",
