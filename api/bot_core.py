@@ -42,7 +42,7 @@ FOREX_MINI_APP_URL = "https://arianto12.lynk.id/p/analisa-forex"
 BOT_DESCRIPTION = (
     "⚡ VORTEX AI ENGINE — Mentor AI sarkas, cerdas, lucu & menggurui.\n"
     "• Tarif: Rp5 / jalan • Minimal deposit Rp5.000\n"
-    "• Vision AI, Analisa Forex, Cek Lokasi & RDP Vortex STD\n"
+    "• Vision AI, Analisa Forex & akses RDP Vortex STD\n"
     "• Aktif 24/7 • Klik Mulai Bot untuk masuk!"
 )
 
@@ -54,7 +54,7 @@ BTN_ROAST = "🔥 Roast Gua"
 BTN_SALDO = "💰 Saldo"
 BTN_TOPUP = "💳 Topup"
 BTN_TIME = "🕒 Jam & Tanggal"
-BTN_LOCATION = "📍 Lokasi"
+BTN_LOCATION = "📍 Cek Lokasi Saat Ini"
 
 RDP_KEYWORDS = (
     "aplikasi rdp",
@@ -417,153 +417,6 @@ def format_wib_datetime() -> tuple[str, str]:
     return tanggal_str, jam_str
 
 
-def reverse_geocode_location(lat: float, lon: float) -> dict:
-    fallback = {
-        "display_name": f"Koordinat {lat:.6f}, {lon:.6f}",
-        "city": "-",
-        "region": "-",
-        "country": "-",
-    }
-    try:
-        resp = requests.get(
-            "https://nominatim.openstreetmap.org/reverse",
-            params={
-                "lat": lat,
-                "lon": lon,
-                "format": "jsonv2",
-                "addressdetails": 1,
-                "accept-language": "id",
-            },
-            headers={"User-Agent": "VortexBot/1.0 (Telegram Location Lookup)"},
-            timeout=10,
-        )
-        if not resp.ok:
-            return fallback
-        data = resp.json() or {}
-        addr = data.get("address") or {}
-        city = (
-            addr.get("city")
-            or addr.get("town")
-            or addr.get("village")
-            or addr.get("county")
-            or addr.get("state_district")
-            or "-"
-        )
-        region = addr.get("state") or addr.get("region") or "-"
-        country = addr.get("country") or "-"
-        display_name = (data.get("display_name") or fallback["display_name"]).strip()
-        return {
-            "display_name": display_name,
-            "city": str(city),
-            "region": str(region),
-            "country": str(country),
-        }
-    except Exception as e:
-        print(f"[Reverse Geocode Error] {e}", file=sys.stderr, flush=True)
-        return fallback
-
-
-def send_location_guide(
-    telegram_token: str,
-    chat_id: int,
-    reply_to_message_id: int | None = None,
-) -> None:
-    msg = (
-        f"<b>📍 CEK LOKASI SAAT INI</b>\n"
-        f"<blockquote>"
-        f"• Kirim <b>Location / Live Location</b> lewat ikon 📎 (lampiran) di Telegram.\n"
-        f"• Bot akan membaca koordinat, alamat/wilayah, dan link Google Maps.\n"
-        f"• Zona waktu bot: <code>WIB (UTC+7)</code>"
-        f"</blockquote>"
-    )
-    send_telegram_message(
-        telegram_token,
-        chat_id,
-        msg,
-        reply_to_message_id=reply_to_message_id,
-        parse_mode="HTML",
-        reply_markup=get_reply_action_inline_keyboard(),
-    )
-
-
-def handle_user_location(
-    telegram_token: str,
-    groq_api_key: str,
-    bot_label: str,
-    models: dict,
-    location: dict,
-    user_id: int | None,
-    sender_name: str,
-    chat_id: int,
-    reply_to_message_id: int | None = None,
-) -> None:
-    try:
-        lat = float(location.get("latitude"))
-        lon = float(location.get("longitude"))
-    except (TypeError, ValueError):
-        send_telegram_message(
-            telegram_token,
-            chat_id,
-            format_styled_reply("ERROR", "Koordinat lokasi tidak valid; coba kirim ulang lokasi."),
-            reply_to_message_id=reply_to_message_id,
-            parse_mode="HTML",
-        )
-        return
-
-    allowed, sisa_saldo, tarif_rp, _ = consume_run_balance(bot_label, user_id, sender_name=sender_name)
-    if not allowed:
-        send_insufficient_balance_notice(
-            telegram_token,
-            bot_label,
-            user_id,
-            sender_name,
-            sisa_saldo,
-            tarif_rp,
-            chat_id,
-            reply_to_message_id=reply_to_message_id,
-        )
-        return
-
-    geo = reverse_geocode_location(lat, lon)
-    gmaps_url = f"https://maps.google.com/?q={lat:.6f},{lon:.6f}"
-    _, jam_str = format_wib_datetime()
-
-    try:
-        note, _ = ask_groq(
-            groq_api_key,
-            f"user berada di {geo['city']}, {geo['region']} ({lat:.5f}, {lon:.5f}) jam {jam_str}",
-            sender_name,
-            models["chat_model"],
-            extra_instruction="Gurui user dengan sarkas dan lucu soal lokasi dan fokus kerja mereka. Maksimal 18 kata.",
-            max_words=18,
-            max_tokens=200,
-            force_angry=False,
-        )
-    except Exception:
-        note = "Lokasi udah ketahuan; sekarang kerjain yang bener, jangan malah ngilang."
-
-    msg = (
-        f"<b>📍 LOKASI TERDETEKSI</b>\n"
-        f"<blockquote>"
-        f"• <b>Alamat:</b> {html.escape(geo['display_name'])}\n"
-        f"• <b>Kota/Kab:</b> <code>{html.escape(geo['city'])}</code> • <b>Provinsi:</b> <code>{html.escape(geo['region'])}</code>\n"
-        f"• <b>Koordinat:</b> <code>{lat:.6f}, {lon:.6f}</code>\n"
-        f"• <b>Waktu Cek:</b> <code>{html.escape(jam_str)}</code>\n"
-        f"• <b>Peta:</b> <a href=\"{html.escape(gmaps_url)}\">Buka Google Maps</a>\n"
-        f"• <b>Catatan:</b> {html.escape(note)}"
-        f"</blockquote>\n"
-        f"<i>-{html.escape(format_rp(tarif_rp))} • Sisa saldo: <code>{html.escape(format_rp(sisa_saldo))}</code></i>"
-    )
-    send_telegram_message(
-        telegram_token,
-        chat_id,
-        msg,
-        reply_to_message_id=reply_to_message_id,
-        parse_mode="HTML",
-        reply_markup=get_reply_action_inline_keyboard(),
-    )
-
-
 def is_angry_trigger(text: str) -> bool:
     lower = " ".join((text or "").lower().split())
     if not lower:
@@ -661,7 +514,7 @@ def configure_telegram_bot(telegram_token: str, webhook_url: str = "") -> dict:
                     {"command": "menu", "description": "Tampilkan menu & mini app"},
                     {"command": "saldo", "description": "Cek saldo & info deposit"},
                     {"command": "topup", "description": "Catat & buka info topup saldo"},
-                    {"command": "lokasi", "description": "Panduan cek lokasi saat ini"},
+                    {"command": "lokasi", "description": "Cek & kirim lokasi saat ini"},
                     {"command": "forex", "description": "Buka info Mini App Analisa Forex"},
                 ]
             },
@@ -678,6 +531,17 @@ def get_remove_reply_keyboard() -> dict:
     return {"remove_keyboard": True}
 
 
+def get_location_request_keyboard() -> dict:
+    return {
+        "keyboard": [
+            [{"text": "📍 Kirim Lokasi Saya Sekarang", "request_location": True}],
+            [{"text": "❌ Batal"}],
+        ],
+        "resize_keyboard": True,
+        "one_time_keyboard": True,
+    }
+
+
 def get_reply_action_inline_keyboard() -> dict:
     return {
         "inline_keyboard": [
@@ -691,11 +555,11 @@ def get_reply_action_inline_keyboard() -> dict:
             ],
             [
                 {"text": "🕒 Jam & Tanggal", "callback_data": "menu_time"},
-                {"text": "📍 Lokasi", "callback_data": "menu_location"},
+                {"text": "💰 Saldo", "callback_data": "menu_saldo"},
             ],
             [
-                {"text": "💰 Saldo", "callback_data": "menu_saldo"},
                 {"text": "💳 Topup", "callback_data": "menu_topup"},
+                {"text": "📍 Cek Lokasi Saat Ini", "callback_data": "menu_location"},
             ],
         ]
     }
@@ -711,11 +575,11 @@ def get_start_inline_keyboard() -> dict:
             ],
             [
                 {"text": "🕒 Jam & Tanggal", "callback_data": "menu_time"},
-                {"text": "📍 Lokasi", "callback_data": "menu_location"},
+                {"text": "💰 Saldo", "callback_data": "menu_saldo"},
             ],
             [
-                {"text": "💰 Saldo", "callback_data": "menu_saldo"},
                 {"text": "💳 Topup", "callback_data": "menu_topup"},
+                {"text": "📍 Cek Lokasi Saat Ini", "callback_data": "menu_location"},
             ],
         ]
     }
@@ -773,7 +637,10 @@ def should_respond_in_group(message: dict, text: str, identity: dict) -> bool:
         return True
 
     if message.get("location"):
-        return True
+        reply_to = message.get("reply_to_message") or {}
+        reply_from = reply_to.get("from") or {}
+        if identity.get("id") and reply_from.get("id") == identity.get("id"):
+            return True
 
     stripped = text.strip()
     bot_id = identity.get("id")
@@ -796,8 +663,15 @@ def should_respond_in_group(message: dict, text: str, identity: dict) -> bool:
         return True
 
     if stripped in (
-        BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE,
-        BTN_ROAST, BTN_SALDO, BTN_TOPUP, BTN_TIME, BTN_LOCATION,
+        BTN_START_APP,
+        BTN_FOREX,
+        BTN_RDP,
+        BTN_GUIDE,
+        BTN_ROAST,
+        BTN_SALDO,
+        BTN_TOPUP,
+        BTN_TIME,
+        BTN_LOCATION,
     ):
         return True
 
@@ -1114,6 +988,122 @@ def build_welcome_message(groq_api_key: str, sender_name: str, chat_model: str, 
         return clamp_words(default_welcome, max_words=30, angry=False)
 
 
+def send_location_prompt(
+    telegram_token: str,
+    chat_id: int,
+    sender_name: str,
+    reply_to_message_id: int | None = None,
+    is_group: bool = False,
+) -> None:
+    if is_group:
+        msg = (
+            f"<b>📍 CEK LOKASI SAAT INI</b>\n"
+            f"<blockquote>"
+            f"Di grup, tekan ikon klip/lampiran (📎) lalu pilih <b>Location / Lokasi</b> "
+            f"(atau kirim lewat chat pribadi bot) agar koordinat lo terbaca."
+            f"</blockquote>"
+        )
+        send_telegram_message(
+            telegram_token,
+            chat_id,
+            msg,
+            reply_to_message_id=reply_to_message_id,
+            parse_mode="HTML",
+            reply_markup=get_reply_action_inline_keyboard(),
+        )
+        return
+
+    msg = (
+        f"<b>📍 CEK LOKASI SAAT INI</b>\n"
+        f"<blockquote>"
+        f"Halo {html.escape(sender_name)}, aktifkan GPS lalu tekan tombol "
+        f"<b>📍 Kirim Lokasi Saya Sekarang</b> di bawah untuk membaca koordinat lo."
+        f"</blockquote>"
+    )
+    send_telegram_message(
+        telegram_token,
+        chat_id,
+        msg,
+        reply_to_message_id=reply_to_message_id,
+        parse_mode="HTML",
+        reply_markup=get_location_request_keyboard(),
+    )
+
+
+def handle_shared_location(
+    telegram_token: str,
+    groq_api_key: str,
+    bot_label: str,
+    chat_model: str,
+    location: dict,
+    chat_id: int,
+    user_id: int | None,
+    sender_name: str,
+    reply_to_message_id: int | None = None,
+    is_group: bool = False,
+) -> None:
+    lat = location.get("latitude")
+    lon = location.get("longitude")
+    if lat is None or lon is None:
+        return
+
+    allowed, sisa_saldo, tarif_rp, _ = consume_run_balance(bot_label, user_id, sender_name=sender_name)
+    if not allowed:
+        send_insufficient_balance_notice(
+            telegram_token,
+            bot_label,
+            user_id,
+            sender_name,
+            sisa_saldo,
+            tarif_rp,
+            chat_id,
+            reply_to_message_id=reply_to_message_id,
+        )
+        return
+
+    maps_url = f"https://maps.google.com/?q={lat},{lon}"
+    try:
+        note, was_angry = ask_groq(
+            groq_api_key,
+            f"koordinat lokasi saat ini: {lat}, {lon}",
+            sender_name,
+            chat_model,
+            extra_instruction="Gurui user dengan sarkas dan lucu soal kirim lokasi/koordinat ini. Maksimal 22 kata.",
+            max_words=22,
+            max_tokens=256,
+        )
+    except Exception:
+        note, was_angry = "Koordinat udah masuk; jangan nyasar dan tetap pakai arah logika.", False
+
+    badge = "ANGRY LOKASI" if was_angry else "LOKASI TERBACA"
+    body = (
+        f"Koordinat: {lat:.6f}, {lon:.6f} • {note}"
+    )
+    extra_footer = f"\n🗺️ <b>Maps:</b> <code>{html.escape(maps_url)}</code>"
+    styled = format_styled_reply(badge, body, sisa_saldo=sisa_saldo, tarif_rp=tarif_rp) + extra_footer
+
+    if not is_group:
+        try:
+            send_telegram_message(
+                telegram_token,
+                chat_id,
+                "Tombol lokasi ditutup.",
+                parse_mode=None,
+                reply_markup=get_remove_reply_keyboard(),
+            )
+        except Exception:
+            pass
+
+    send_telegram_message(
+        telegram_token,
+        chat_id,
+        styled,
+        reply_to_message_id=reply_to_message_id,
+        parse_mode="HTML",
+        reply_markup=get_reply_action_inline_keyboard(),
+    )
+
+
 def send_forex_mini_app(
     telegram_token: str,
     groq_api_key: str,
@@ -1344,7 +1334,13 @@ def handle_menu_action(
     elif action_key == "time":
         send_time_info(telegram_token, groq_api_key, chat_id, sender_name, chat_model, reply_to_message_id=reply_to_message_id)
     elif action_key == "location":
-        send_location_guide(telegram_token, chat_id, reply_to_message_id=reply_to_message_id)
+        send_location_prompt(
+            telegram_token,
+            chat_id,
+            sender_name,
+            reply_to_message_id=reply_to_message_id,
+            is_group=is_group,
+        )
     elif action_key == "guide":
         try:
             guide_reply, _ = ask_groq(
@@ -1474,16 +1470,17 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
     if location_data:
         if is_group and not should_respond_in_group(message, "", identity):
             return
-        handle_user_location(
+        handle_shared_location(
             telegram_token,
             groq_api_key,
             bot_label,
-            models,
+            models["chat_model"],
             location_data,
+            chat_id,
             user_id,
             sender_name,
-            chat_id,
             reply_to_message_id=message_id,
+            is_group=is_group,
         )
         return
 
@@ -1539,8 +1536,27 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
 
     cleaned_text = strip_bot_mention(text, identity.get("username") or "")
 
-    if not has_photo and cleaned_text.startswith("/lokasi"):
-        send_location_guide(telegram_token, chat_id, reply_to_message_id=message_id)
+    if not has_photo and cleaned_text.strip() == "❌ Batal":
+        send_telegram_message(
+            telegram_token,
+            chat_id,
+            "Oke, dibatalin.",
+            parse_mode=None,
+            reply_markup=get_remove_reply_keyboard(),
+        )
+        return
+
+    if not has_photo and (
+        cleaned_text.startswith("/lokasi")
+        or cleaned_text.strip().lower() in ("cek lokasi saat ini", "lokasi saat ini", "lokasi")
+    ):
+        send_location_prompt(
+            telegram_token,
+            chat_id,
+            sender_name,
+            reply_to_message_id=message_id,
+            is_group=is_group,
+        )
         return
 
     if not has_photo and cleaned_text.startswith("/topup"):
@@ -1619,8 +1635,15 @@ def process_webhook_update(upd: dict, telegram_token: str, groq_api_key: str, bo
         return
 
     if not has_photo and cleaned_text in (
-        BTN_START_APP, BTN_FOREX, BTN_RDP, BTN_GUIDE,
-        BTN_ROAST, BTN_SALDO, BTN_TOPUP, BTN_TIME, BTN_LOCATION,
+        BTN_START_APP,
+        BTN_FOREX,
+        BTN_RDP,
+        BTN_GUIDE,
+        BTN_ROAST,
+        BTN_SALDO,
+        BTN_TOPUP,
+        BTN_TIME,
+        BTN_LOCATION,
     ):
         quick_map = {
             BTN_START_APP: "forex",
