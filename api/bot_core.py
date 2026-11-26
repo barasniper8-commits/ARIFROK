@@ -394,7 +394,7 @@ def send_insufficient_balance_notice(
         f"• <b>Saldo Kamu:</b> <code>{html.escape(format_rp(current_saldo))}</code>\n"
         f"• <b>Tarif / Jalan:</b> <code>{html.escape(format_rp(tarif_rp))}</code>\n"
         f"• <b>Minimal Depo:</b> <code>{html.escape(format_rp(MIN_DEPOSIT_RP))}</code>\n"
-        f"• Klik <b>💳 Topup</b> untuk mencatat ID ke GitHub."
+ 
         f"</blockquote>"
     )
     send_telegram_message(
