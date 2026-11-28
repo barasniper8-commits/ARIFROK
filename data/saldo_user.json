@@ -23,7 +23,7 @@
     "bot": "Bot-2",
     "user_id": 1908469040,
     "nama": "Ari",
-    "saldo": 0,
+    "saldo": 1000,
     "min_deposit": 5000,
     "tarif_per_jalan": 5,
     "status_topup": "belum_ada",
